@@ -1,0 +1,85 @@
+html, body, #root, .App {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Prevent scrollbars */
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+}
+
+.App {
+  display: flex;
+  flex-direction: column;
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 10px;
+  color: white;
+  text-align: center;
+  z-index: 1000;
+}
+
+.main-content {
+  flex: 1; /* Grow to fill available space */
+  display: flex;
+  position: relative; /* For positioning children like loading messages */
+}
+
+.flight-map-wrapper {
+  flex: 1;
+}
+
+.map-container {
+  width: 100%;
+  height: 100%;
+}
+
+.loading-message, .error-message {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0,0,0,0.7);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    z-index: 1001;
+}
+
+.error-message {
+    background-color: #f44336; /* Red for errors */
+}
+
+.marker {
+    font-size: 24px;
+    color: #f0f0f0;
+    text-shadow: 0 0 3px black; /* Add shadow for better visibility */
+    width: 25px;
+    height: 25px;
+    cursor: pointer;
+    transform-origin: center center;
+}
+
+.mapboxgl-popup {
+  max-width: 200px;
+}
+
+.mapboxgl-popup-content {
+  text-align: left;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+.mapboxgl-popup-content h3 {
+  margin: 0 0 5px 0;
+  font-size: 1rem;
+}
+
+.mapboxgl-popup-content p {
+  margin: 0;
+  font-size: 0.8rem;
+}
