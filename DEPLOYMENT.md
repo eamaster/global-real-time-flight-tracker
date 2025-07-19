@@ -51,10 +51,17 @@ wrangler deploy
    - Set Source to "GitHub Actions"
    - The workflow will automatically deploy on push to main
 
+4. **Configure Custom Domain (hesam.me):**
+   - In repository Settings > Pages
+   - Set Custom domain to: `hesam.me`
+   - Enable "Enforce HTTPS"
+   - Add CNAME DNS record: `hesam.me` → `eamaster.github.io`
+
 ## Step 3: Test Your Deployment
 
 - **Backend:** Visit `https://global-flight-tracker-api.your-subdomain.workers.dev/api/flights`
-- **Frontend:** Visit `https://yourusername.github.io/global-real-time-flight-tracker`
+- **Frontend:** Visit `https://hesam.me` (custom domain)
+- **Alternative:** Visit `https://eamaster.github.io/global-real-time-flight-tracker` (GitHub Pages)
 
 ## Environment Variables Summary
 
