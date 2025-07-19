@@ -56,11 +56,12 @@ wrangler deploy
    - Set Custom domain to: `hesam.me`
    - Enable "Enforce HTTPS"
    - Add CNAME DNS record: `hesam.me` → `eamaster.github.io`
+   - The site will be accessible at: `https://hesam.me/global-real-time-flight-tracker`
 
 ## Step 3: Test Your Deployment
 
 - **Backend:** Visit `https://global-flight-tracker-api.your-subdomain.workers.dev/api/flights`
-- **Frontend:** Visit `https://hesam.me` (custom domain)
+- **Frontend:** Visit `https://hesam.me/global-real-time-flight-tracker` (custom domain with project path)
 - **Alternative:** Visit `https://eamaster.github.io/global-real-time-flight-tracker` (GitHub Pages)
 
 ## Environment Variables Summary
