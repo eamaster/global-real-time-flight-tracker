@@ -11,7 +11,9 @@ const App = () => {
     const fetchFlights = async () => {
         try {
             setLoading(true);
-            const response = await axios.get('/api/flights');
+            // Use production Cloudflare Workers backend URL
+            const apiUrl = import.meta.env.VITE_API_URL || 'https://global-flight-tracker-api.smah0085.workers.dev';
+            const response = await axios.get(`${apiUrl}/api/flights`);
             setFlights(response.data.flights);
             setError(null);
         } catch (err) {

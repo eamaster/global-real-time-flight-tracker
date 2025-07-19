@@ -1,0 +1,13 @@
+name = "global-flight-tracker-api"
+main = "worker.js"
+compatibility_date = "2023-12-01"
+
+[env.production.vars]
+# Environment variables will be set via Cloudflare dashboard
+# OPENSKY_CLIENT_ID = "your_opensky_client_id"
+# OPENSKY_CLIENT_SECRET = "your_opensky_client_secret"
+
+# Optional: Custom domain configuration
+# [[env.production.routes]]
+# pattern = "api.hesam.me/*"
+# zone_name = "hesam.me"

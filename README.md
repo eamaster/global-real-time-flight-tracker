@@ -53,4 +53,28 @@ A web application to track flights in real-time using the OpenSky Network API.
 
 ## Deployment
 
-[Instructions for deployment will be added here.]
+The application is configured for production deployment with:
+- **Frontend**: GitHub Pages at `hesam.me/global-real-time-flight-tracker`
+- **Backend**: Cloudflare Workers
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+
+### Quick Deployment Steps
+
+1. **Deploy Backend to Cloudflare Workers**:
+   ```bash
+   cd backend
+   npm install -g wrangler
+   wrangler login
+   wrangler deploy
+   ```
+   Then set environment variables in Cloudflare dashboard.
+
+2. **Deploy Frontend to GitHub Pages**:
+   - Push code to GitHub
+   - Configure repository secrets (VITE_MAPBOX_TOKEN, VITE_API_URL)
+   - GitHub Actions will automatically deploy to Pages
+
+3. **Configure Custom Domain**:
+   - Set `hesam.me` as custom domain in GitHub Pages settings
+   - Add CNAME DNS record pointing to your GitHub Pages URL
