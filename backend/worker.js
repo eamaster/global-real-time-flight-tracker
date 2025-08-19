@@ -57,7 +57,7 @@ const fetchFlightData = async (request) => {
                         'Content-Type': 'application/json',
                         'Access-Control-Allow-Origin': '*',
                         'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                        'Access-Control-Allow-Headers': 'Content-Type'
+                        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
                     }
                 }
             );
@@ -113,7 +113,7 @@ const fetchFlightData = async (request) => {
                             'Content-Type': 'application/json',
                             'Access-Control-Allow-Origin': '*',
                             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                            'Access-Control-Allow-Headers': 'Content-Type'
+                            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
                         }
                     }
                 );
@@ -135,7 +135,7 @@ const fetchFlightData = async (request) => {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*',
                     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type'
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
                 }
             }
         );
@@ -172,7 +172,7 @@ const processFlightData = (data) => {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
+                'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
             }
         }
     );
@@ -185,7 +185,7 @@ const handleCORS = () => {
         headers: {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
+            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
         }
     });
 };
@@ -221,7 +221,9 @@ async function handleRequest(request) {
                 status: 200,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
                 }
             }
         );
@@ -234,7 +236,9 @@ async function handleRequest(request) {
             status: 404,
             headers: {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
             }
         }
     );

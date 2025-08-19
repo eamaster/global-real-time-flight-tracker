@@ -26,10 +26,7 @@ const App = () => {
             
             const response = await axios.get(`${apiUrl}/api/flights`, {
                 signal: abortControllerRef.current.signal,
-                timeout: 8000, // 8 second timeout
-                headers: {
-                    'Cache-Control': 'no-cache'
-                }
+                timeout: 8000 // 8 second timeout
             });
             
             if (response.data && response.data.flights) {
