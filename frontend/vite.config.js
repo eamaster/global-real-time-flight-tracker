@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/global-real-time-flight-tracker/',
+  base: '/', // Use root base for custom domain
   build: {
     outDir: 'dist',
     assetsDir: 'assets'
