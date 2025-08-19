@@ -1,9 +1,9 @@
-/* High-performance airplane markers using Mapbox symbol layer */
+/* High-performance flight animation system */
 
-/* Optimized map container */
 .map-container {
-    /* Ensure smooth rendering */
+    /* Optimize for 60fps animations */
     will-change: contents;
+    transform: translateZ(0); /* Force hardware acceleration */
 }
 
 /* Flight popup styling */
@@ -11,6 +11,7 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 14px;
     line-height: 1.4;
+    max-width: 280px;
 }
 
 .flight-popup h3 {
@@ -18,11 +19,14 @@
     color: #2c3e50;
     font-size: 16px;
     font-weight: 600;
+    border-bottom: 1px solid #ecf0f1;
+    padding-bottom: 4px;
 }
 
 .flight-popup p {
     margin: 4px 0;
     color: #34495e;
+    font-size: 13px;
 }
 
 /* Highlighted heading information */
@@ -36,32 +40,29 @@
     color: #2c3e50;
 }
 
-/* Fallback for DOM-based markers if needed */
-.plane {
-    display: inline-block;
-    font-size: 20px;
-    transition: transform 250ms linear;
-    pointer-events: auto;
-    cursor: pointer;
-    transform-origin: 50% 50%;
-    /* Clean emoji rendering */
-    font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Segoe UI Symbol', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    /* Performance optimizations */
-    will-change: transform;
-    backface-visibility: hidden;
-    /* NO shadows or halos */
-    text-shadow: none;
-    box-shadow: none;
-    filter: none;
-    outline: none;
+/* Smooth airplane animations */
+.mapboxgl-canvas {
+    /* Optimize canvas for smooth rendering */
+    image-rendering: optimizeSpeed;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: optimize-contrast;
 }
 
-.plane:hover {
-    opacity: 0.8;
+/* Performance optimizations for large datasets */
+.flight-map-wrapper {
+    /* Enable GPU acceleration */
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+/* Smooth popup transitions */
+.mapboxgl-popup {
+    transition: opacity 200ms ease-in-out;
+}
+
+.mapboxgl-popup-content {
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.1);
 }
