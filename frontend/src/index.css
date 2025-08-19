@@ -56,11 +56,11 @@ body {
 }
 
 .marker {
-    font-size: 18px;
-    color: #FFD700;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
-    width: 20px;
-    height: 20px;
+    font-size: 20px;
+    color: #4A90E2;
+    text-shadow: 0 0 3px rgba(255, 255, 255, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);
+    width: 24px;
+    height: 24px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -72,11 +72,13 @@ body {
     -webkit-transform-origin: center center !important;
     -moz-transform-origin: center center !important;
     -ms-transform-origin: center center !important;
-    /* Ensure rotation is smooth and visible */
-    transition: opacity 0.1s ease-out;
+    /* Smooth rotation transition */
+    transition: transform 0.2s ease-out, opacity 0.1s ease-out;
     /* Force hardware acceleration */
     will-change: transform;
     backface-visibility: hidden;
+    /* Ensure emoji renders clearly */
+    font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 /* CSS airplane icon that clearly shows direction */
@@ -122,8 +124,9 @@ body {
 }
 
 .marker:hover {
-    opacity: 0.8 !important;
-    /* Ensure hover doesn't override transform */
+    transform: scale(1.2) rotate(var(--rotation-angle, 0deg)) !important;
+    filter: brightness(1.2) drop-shadow(0 0 8px rgba(74, 144, 226, 0.6));
+    opacity: 1 !important;
 }
 
 /* Force transform to work - override any Mapbox styles */

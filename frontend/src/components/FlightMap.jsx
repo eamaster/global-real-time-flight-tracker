@@ -67,16 +67,17 @@ const FlightMap = ({ flights }) => {
         let angle = trueTrack % 360;
         if (angle < 0) angle += 360;
         
-        // Triangle ▲ naturally points up (North = 0°)
+        // Airplane emoji ✈️ naturally points northeast (45 degrees)
         // true_track from OpenSky: 0° = North, 90° = East, 180° = South, 270° = West
-        // Since triangle already points North, we can use the angle directly
+        // We need to subtract 45° to align the emoji with the actual heading
+        const adjustedAngle = angle - 45;
         
-        // Debug logging for a few flights
-        if (Math.random() < 0.01) {
-            console.log(`Flight heading: ${trueTrack}° → Rotation: ${angle}°`);
-        }
+        // Optional debug logging (disabled for production)
+        // if (Math.random() < 0.01) {
+        //     console.log(`Flight heading: ${trueTrack}° → Rotation: ${adjustedAngle}° (adjusted for emoji)`);
+        // }
         
-        return angle;
+        return adjustedAngle;
     }, []);
 
     // Simple popup creation
@@ -161,8 +162,8 @@ const FlightMap = ({ flights }) => {
                 // Create new marker
                 const el = document.createElement('div');
                 el.className = 'marker';
-                // Use a simple directional arrow that clearly shows rotation
-                el.innerHTML = '▲';
+                // Use airplane emoji
+                el.innerHTML = '✈️';
                 
                 // Set rotation immediately
                 const rotationAngle = calculateRotation(true_track);
