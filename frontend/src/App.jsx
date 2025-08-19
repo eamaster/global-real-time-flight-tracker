@@ -62,8 +62,8 @@ const App = () => {
 
     useEffect(() => {
         fetchFlights();
-        // Real-time tracking with 8-second intervals for responsive updates
-        const interval = setInterval(fetchFlights, 8000);
+        // Balanced real-time tracking with 15-second intervals to avoid worker limits
+        const interval = setInterval(fetchFlights, 15000);
 
         return () => {
             clearInterval(interval);

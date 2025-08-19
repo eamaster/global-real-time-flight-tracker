@@ -45,22 +45,12 @@ const getOpenSkyToken = async () => {
 
 // Function to fetch flight data from OpenSky API
 const fetchFlightData = async (request) => {
-    // Ensure we have a valid token
+    // Try to get a token, but continue without authentication if credentials are missing
     if (!accessToken) {
         const token = await getOpenSkyToken();
+        // Continue without token if credentials are not configured (use public API)
         if (!token) {
-            return new Response(
-                JSON.stringify({ message: 'Service unavailable: Could not authenticate with OpenSky API.' }),
-                { 
-                    status: 503,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Access-Control-Allow-Origin': '*',
-                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-                    }
-                }
-            );
+            console.log('No OpenSky credentials configured, using public API (rate limited)');
         }
     }
 
@@ -78,11 +68,13 @@ const fetchFlightData = async (request) => {
             apiUrl += `?lamin=${lat_min}&lomin=${lon_min}&lamax=${lat_max}&lomax=${lon_max}`;
         }
 
-        const response = await fetch(apiUrl, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
+        // Make request with or without authentication
+        const headers = {};
+        if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+        }
+        
+        const response = await fetch(apiUrl, { headers });
 
         if (!response.ok) {
             if (response.status === 401) {

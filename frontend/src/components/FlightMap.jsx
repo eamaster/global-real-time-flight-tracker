@@ -262,7 +262,7 @@ const FlightMap = ({ flights }) => {
                 
                 // Add smooth transition properties for position interpolation
                 map.current.setPaintProperty('flight-markers', 'text-translate-transition', {
-                    duration: 8000, // Match update interval for smooth movement
+                    duration: 15000, // Match update interval for smooth movement
                     delay: 0
                 });
             }
