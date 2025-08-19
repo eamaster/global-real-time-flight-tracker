@@ -62,14 +62,21 @@ body {
     width: 20px;
     height: 20px;
     cursor: pointer;
-    transform-origin: center center !important;
     display: flex;
     align-items: center;
     justify-content: center;
     user-select: none;
     -webkit-user-select: none;
+    /* Critical transform properties */
+    transform-origin: center center !important;
+    -webkit-transform-origin: center center !important;
+    -moz-transform-origin: center center !important;
+    -ms-transform-origin: center center !important;
     /* Ensure rotation is smooth and visible */
     transition: opacity 0.1s ease-out;
+    /* Force hardware acceleration */
+    will-change: transform;
+    backface-visibility: hidden;
 }
 
 /* CSS airplane icon that clearly shows direction */
@@ -117,6 +124,16 @@ body {
 .marker:hover {
     opacity: 0.8 !important;
     /* Ensure hover doesn't override transform */
+}
+
+/* Force transform to work - override any Mapbox styles */
+.mapboxgl-marker .marker {
+    transform-origin: center center !important;
+}
+
+/* Ensure rotation is applied correctly */
+.marker[style*="transform"] {
+    transform-origin: center center !important;
 }
 
 /* Enhanced popup styling */

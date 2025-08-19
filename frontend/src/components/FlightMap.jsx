@@ -144,9 +144,14 @@ const FlightMap = ({ flights }) => {
                 const markerElement = marker.getElement();
                 
                 if (markerElement) {
-                    // Apply rotation
+                    // Apply rotation with multiple fallbacks
+                    markerElement.style.transform = `rotate(${rotationAngle}deg)`;
+                    markerElement.style.transformOrigin = 'center center';
                     markerElement.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
                     markerElement.style.setProperty('transform-origin', 'center center', 'important');
+                    
+                    // Also set as CSS custom property for debugging
+                    markerElement.style.setProperty('--rotation-angle', `${rotationAngle}deg`);
                     markerElement.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
                     markerElement.title = typeof true_track === 'number' ? 
                         `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
@@ -162,9 +167,14 @@ const FlightMap = ({ flights }) => {
                 // Set rotation immediately
                 const rotationAngle = calculateRotation(true_track);
                 
-                // Apply rotation
+                // Apply rotation with multiple fallbacks
+                el.style.transform = `rotate(${rotationAngle}deg)`;
+                el.style.transformOrigin = 'center center';
                 el.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
                 el.style.setProperty('transform-origin', 'center center', 'important');
+                
+                // Also set as CSS custom property for debugging
+                el.style.setProperty('--rotation-angle', `${rotationAngle}deg`);
                 el.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
                 el.title = typeof true_track === 'number' ? 
                     `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
