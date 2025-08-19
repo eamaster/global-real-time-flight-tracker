@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import FlightMap from './components/FlightMap';
 import './App.css';
@@ -7,36 +7,83 @@ const App = () => {
     const [flights, setFlights] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [lastFetch, setLastFetch] = useState(null);
+    const abortControllerRef = useRef(null);
 
-    const fetchFlights = async () => {
+    const fetchFlights = useCallback(async () => {
+        // Cancel any ongoing request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        // Create new abort controller for this request
+        abortControllerRef.current = new AbortController();
+
         try {
             setLoading(true);
             // Use production Cloudflare Workers backend URL
             const apiUrl = import.meta.env.VITE_API_URL || 'https://global-flight-tracker-api.your-subdomain.workers.dev';
-            const response = await axios.get(`${apiUrl}/api/flights`);
-            setFlights(response.data.flights);
-            setError(null);
+            
+            const response = await axios.get(`${apiUrl}/api/flights`, {
+                signal: abortControllerRef.current.signal,
+                timeout: 8000, // 8 second timeout
+                headers: {
+                    'Cache-Control': 'no-cache'
+                }
+            });
+            
+            if (response.data && response.data.flights) {
+                // Filter out invalid flight data immediately
+                const validFlights = response.data.flights.filter(flight => 
+                    flight && 
+                    flight.icao24 && 
+                    typeof flight.latitude === 'number' && 
+                    typeof flight.longitude === 'number' &&
+                    !isNaN(flight.latitude) && 
+                    !isNaN(flight.longitude)
+                );
+                
+                setFlights(validFlights);
+                setError(null);
+                setLastFetch(new Date().toLocaleTimeString());
+            }
         } catch (err) {
-            setError('Error fetching flight data. Please try again later.');
-            console.error(err);
+            if (err.name !== 'CanceledError') {
+                setError('Error fetching flight data. Please try again later.');
+                console.error('Fetch error:', err);
+            }
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
-    };
+    }, []);
 
     useEffect(() => {
         fetchFlights();
-        const interval = setInterval(fetchFlights, 10000); // Poll every 10 seconds
+        // Reduced polling frequency to 15 seconds for better performance
+        const interval = setInterval(fetchFlights, 15000);
 
-        return () => clearInterval(interval); // Cleanup on unmount
-    }, []);
+        return () => {
+            clearInterval(interval);
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        };
+    }, [fetchFlights]);
 
     return (
         <div className="App">
             <header className="App-header">
                 <h1>Global Real-Time Flight Tracker</h1>
+                {lastFetch && (
+                    <small style={{ opacity: 0.8, fontSize: '12px' }}>
+                        Last updated: {lastFetch} | Flights: {flights.length}
+                    </small>
+                )}
             </header>
             <main className="main-content">
-                {loading && <p className="loading-message">Loading flight data...</p>}
+                {loading && flights.length === 0 && (
+                    <p className="loading-message">Loading flight data...</p>
+                )}
                 {error && <p className="error-message">{error}</p>}
                 <FlightMap flights={flights} />
             </main>
