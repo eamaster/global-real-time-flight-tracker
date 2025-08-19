@@ -10,10 +10,19 @@ const App = () => {
     const [lastFetch, setLastFetch] = useState(null);
     const abortControllerRef = useRef(null);
     const [lastBounds, setLastBounds] = useState(null);
+    const [tooWide, setTooWide] = useState(false);
 
     const fetchFlights = useCallback(async () => {
         // Require bounds to satisfy backend bbox requirement
         if (!lastBounds) return;
+        // Guard: skip if bbox exceeds backend limit (60° per side)
+        const width = Math.abs(lastBounds.lon_max - lastBounds.lon_min);
+        const height = Math.abs(lastBounds.lat_max - lastBounds.lat_min);
+        if (width > 60 || height > 60) {
+            setTooWide(true);
+            return;
+        }
+        setTooWide(false);
         // Cancel any ongoing request
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -99,6 +108,9 @@ const App = () => {
             <main className="main-content">
                 {loading && flights.length === 0 && (
                     <p className="loading-message">Loading flight data...</p>
+                )}
+                {tooWide && (
+                    <p className="error-message">Area too large. Please zoom in to load flights.</p>
                 )}
                 {error && <p className="error-message">{error}</p>}
                 <FlightMap flights={flights} />

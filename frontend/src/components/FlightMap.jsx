@@ -47,62 +47,6 @@ const FlightMap = ({ flights }) => {
         });
 
         map.current.on('load', () => {
-            // Create airplane icon programmatically to ensure it loads
-            const createAirplaneIcon = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = 32;
-                canvas.height = 32;
-                
-                // Draw airplane pointing up (North)
-                ctx.fillStyle = '#4A90E2';
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1;
-                
-                // Main body
-                ctx.beginPath();
-                ctx.moveTo(16, 4);
-                ctx.lineTo(18, 10);
-                ctx.lineTo(26, 10);
-                ctx.lineTo(23, 13);
-                ctx.lineTo(19, 13);
-                ctx.lineTo(16, 18);
-                ctx.lineTo(13, 13);
-                ctx.lineTo(9, 13);
-                ctx.lineTo(6, 10);
-                ctx.lineTo(14, 10);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                
-                // Tail
-                ctx.beginPath();
-                ctx.moveTo(16, 18);
-                ctx.lineTo(19, 24);
-                ctx.lineTo(22, 24);
-                ctx.lineTo(23, 27);
-                ctx.lineTo(20, 27);
-                ctx.lineTo(16, 28);
-                ctx.lineTo(12, 27);
-                ctx.lineTo(9, 27);
-                ctx.lineTo(10, 24);
-                ctx.lineTo(13, 24);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                
-                return canvas;
-            };
-            
-            // Add the airplane icon
-            try {
-                const airplaneCanvas = createAirplaneIcon();
-                map.current.addImage('airplane', airplaneCanvas);
-                console.log('Airplane icon created successfully');
-            } catch (error) {
-                console.log('Failed to create airplane icon, using emoji fallback');
-            }
-
             // Dispatch initial bounds so the backend can be queried with a bounding box
             try {
                 const b = map.current.getBounds();
