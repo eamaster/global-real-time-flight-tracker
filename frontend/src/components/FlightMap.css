@@ -1,1 +1,45 @@
-/* All styles for this component have been moved to index.css */
+.plane {
+    display: inline-block;
+    font-size: 20px;
+    transition: transform 250ms linear;
+    pointer-events: auto;
+    cursor: pointer;
+    transform-origin: 50% 50%;
+    /* Emoji font fallbacks */
+    font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Segoe UI Symbol', sans-serif;
+    /* Ensure proper rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Prevent text selection */
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    /* Add subtle glow for visibility */
+    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
+}
+
+.plane:hover {
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.8));
+    transform: scale(1.1) rotate(var(--current-rotation, 0deg));
+}
+
+/* SVG fallback icon for systems that don't support emoji */
+.plane-svg-fallback {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    transition: transform 250ms linear;
+    pointer-events: auto;
+    cursor: pointer;
+    transform-origin: 50% 50%;
+}
+
+/* Enhanced popup styling */
+.flight-popup .heading-highlight {
+    background-color: rgba(74, 144, 226, 0.1);
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: 8px 0;
+    border-left: 3px solid #4A90E2;
+}

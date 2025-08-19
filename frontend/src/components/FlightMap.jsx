@@ -13,6 +13,7 @@ const FlightMap = ({ flights }) => {
     const [zoom, setZoom] = useState(2);
     const markers = useRef({});
     const [isMapLoaded, setIsMapLoaded] = useState(false);
+    const [selectedFlight, setSelectedFlight] = useState(null);
 
     useEffect(() => {
         if (map.current) return; // initialize map only once
@@ -57,56 +58,68 @@ const FlightMap = ({ flights }) => {
         };
     }, []);
 
-    // Airplane rotation calculation
-    const calculateRotation = useCallback((trueTrack) => {
-        if (typeof trueTrack !== 'number' || isNaN(trueTrack)) {
-            return 0; // Default rotation for flights without heading data
-        }
+    // Show heading popup for clicked flight
+    const showHeadingPopup = useCallback((flight) => {
+        setSelectedFlight(flight);
         
-        // Normalize the angle to be between 0 and 360 degrees
-        let angle = trueTrack % 360;
-        if (angle < 0) angle += 360;
-        
-        // Airplane emoji ✈️ naturally points northeast (45 degrees)
-        // true_track from OpenSky: 0° = North, 90° = East, 180° = South, 270° = West
-        // We need to subtract 45° to align the emoji with the actual heading
-        const adjustedAngle = angle - 45;
-        
-        // Optional debug logging (disabled for production)
-        // if (Math.random() < 0.01) {
-        //     console.log(`Flight heading: ${trueTrack}° → Rotation: ${adjustedAngle}° (adjusted for emoji)`);
-        // }
-        
-        return adjustedAngle;
-    }, []);
-
-    // Simple popup creation
-    const createPopup = useCallback((flight) => {
-        const { callsign, icao24, origin_country, baro_altitude, velocity, true_track } = flight;
-        
+        // Create popup content with heading emphasis
         const popupContent = `
             <div class="flight-popup">
-                <h3>${callsign || 'Unknown'}</h3>
-                <p><strong>ICAO24:</strong> ${icao24}</p>
-                <p><strong>Origin:</strong> ${origin_country || 'Unknown'}</p>
-                <p><strong>Altitude:</strong> ${baro_altitude ? `${Math.round(baro_altitude)}m` : 'N/A'}</p>
-                <p><strong>Speed:</strong> ${velocity ? `${Math.round(velocity * 3.6)} km/h` : 'N/A'}</p>
-                <p><strong>Heading:</strong> ${typeof true_track === 'number' ? `${Math.round(true_track)}°` : 'N/A'}</p>
+                <h3>${flight.callsign || 'Unknown Flight'}</h3>
+                <p><strong>ICAO24:</strong> ${flight.icao24}</p>
+                <p><strong>Origin:</strong> ${flight.origin_country || 'Unknown'}</p>
+                <p><strong>Altitude:</strong> ${flight.baro_altitude ? `${Math.round(flight.baro_altitude)}m` : 'N/A'}</p>
+                <p><strong>Speed:</strong> ${flight.velocity ? `${Math.round(flight.velocity * 3.6)} km/h` : 'N/A'}</p>
+                <p class="heading-highlight"><strong>Heading:</strong> ${typeof flight.heading === 'number' ? `${Math.round(flight.heading)}°` : 'N/A'}</p>
             </div>
         `;
         
-        return new mapboxgl.Popup({ 
+        // Create and show popup
+        const popup = new mapboxgl.Popup({ 
             offset: 25,
             closeButton: true,
-            closeOnClick: false,
+            closeOnClick: true,
             maxWidth: '250px'
-        }).setHTML(popupContent);
+        })
+        .setLngLat([flight.longitude, flight.latitude])
+        .setHTML(popupContent)
+        .addTo(map.current);
+
+        // Clear selected flight when popup is closed
+        popup.on('close', () => {
+            setSelectedFlight(null);
+        });
     }, []);
+
+    // Create airplane marker element
+    const createAirplaneMarker = useCallback((flight) => {
+        const el = document.createElement('span');
+        el.className = 'plane';
+        
+        // Use airplane emoji with SVG fallback
+        el.innerHTML = '✈️';
+        
+        // Set individual rotation based on flight heading
+        const heading = flight.heading || 0;
+        el.style.transform = `rotate(${heading}deg)`;
+        el.style.transformOrigin = '50% 50%';
+        
+        // Add click handler for heading popup
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showHeadingPopup(flight);
+        });
+        
+        // Add tooltip
+        el.title = `${flight.callsign || 'Unknown'} - Heading: ${Math.round(heading)}°`;
+        
+        return el;
+    }, [showHeadingPopup]);
 
     useEffect(() => {
         if (!isMapLoaded || !flights.length) return;
 
-        // Filter valid flights
+        // Filter valid flights with coordinates
         const validFlights = flights.filter(flight => 
             flight && 
             flight.icao24 && 
@@ -133,66 +146,38 @@ const FlightMap = ({ flights }) => {
 
         // Process each flight
         validFlights.forEach(flight => {
-            const { icao24, latitude, longitude, true_track } = flight;
+            const { icao24, latitude, longitude } = flight;
+            const heading = flight.heading || 0;
 
             if (markers.current[icao24]) {
                 // Update existing marker
                 const marker = markers.current[icao24];
                 marker.setLngLat([longitude, latitude]);
                 
-                // Update rotation immediately
-                const rotationAngle = calculateRotation(true_track);
+                // Update rotation only if heading changed (performance optimization)
                 const markerElement = marker.getElement();
-                
                 if (markerElement) {
-                    // Apply rotation with multiple fallbacks
-                    markerElement.style.transform = `rotate(${rotationAngle}deg)`;
-                    markerElement.style.transformOrigin = 'center center';
-                    markerElement.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
-                    markerElement.style.setProperty('transform-origin', 'center center', 'important');
+                    const currentTransform = markerElement.style.transform;
+                    const newTransform = `rotate(${heading}deg)`;
                     
-                    // Also set as CSS custom property for debugging
-                    markerElement.style.setProperty('--rotation-angle', `${rotationAngle}deg`);
-                    markerElement.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
-                    markerElement.title = typeof true_track === 'number' ? 
-                        `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
-                        'No heading data';
+                    // Only update transform if it changed (avoid unnecessary reflows)
+                    if (currentTransform !== newTransform) {
+                        markerElement.style.transform = newTransform;
+                        markerElement.title = `${flight.callsign || 'Unknown'} - Heading: ${Math.round(heading)}°`;
+                    }
                 }
             } else {
-                // Create new marker
-                const el = document.createElement('div');
-                el.className = 'marker';
-                // Use airplane emoji
-                el.innerHTML = '✈️';
+                // Create new marker with airplane element
+                const airplaneElement = createAirplaneMarker(flight);
                 
-                // Set rotation immediately
-                const rotationAngle = calculateRotation(true_track);
-                
-                // Apply rotation with multiple fallbacks
-                el.style.transform = `rotate(${rotationAngle}deg)`;
-                el.style.transformOrigin = 'center center';
-                el.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
-                el.style.setProperty('transform-origin', 'center center', 'important');
-                
-                // Also set as CSS custom property for debugging
-                el.style.setProperty('--rotation-angle', `${rotationAngle}deg`);
-                el.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
-                el.title = typeof true_track === 'number' ? 
-                    `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
-                    'No heading data';
-
-                // Create popup
-                const popup = createPopup(flight);
-
-                const newMarker = new mapboxgl.Marker(el)
+                const newMarker = new mapboxgl.Marker(airplaneElement)
                     .setLngLat([longitude, latitude])
-                    .setPopup(popup)
                     .addTo(map.current);
                 
                 markers.current[icao24] = newMarker;
             }
         });
-    }, [flights, isMapLoaded, calculateRotation, createPopup]);
+    }, [flights, isMapLoaded, createAirplaneMarker]);
 
     return (
         <div className="flight-map-wrapper">

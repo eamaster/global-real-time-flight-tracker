@@ -30,15 +30,21 @@ const App = () => {
             });
             
             if (response.data && response.data.flights) {
-                // Filter out invalid flight data immediately
-                const validFlights = response.data.flights.filter(flight => 
-                    flight && 
-                    flight.icao24 && 
-                    typeof flight.latitude === 'number' && 
-                    typeof flight.longitude === 'number' &&
-                    !isNaN(flight.latitude) && 
-                    !isNaN(flight.longitude)
-                );
+                // Filter and process flight data
+                const validFlights = response.data.flights
+                    .filter(flight => 
+                        flight && 
+                        flight.icao24 && 
+                        typeof flight.latitude === 'number' && 
+                        typeof flight.longitude === 'number' &&
+                        !isNaN(flight.latitude) && 
+                        !isNaN(flight.longitude)
+                    )
+                    .map(flight => ({
+                        ...flight,
+                        // Ensure heading property exists (use true_track as heading)
+                        heading: typeof flight.true_track === 'number' ? flight.true_track : 0
+                    }));
                 
                 setFlights(validFlights);
                 setError(null);

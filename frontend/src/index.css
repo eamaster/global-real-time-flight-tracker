@@ -55,88 +55,9 @@ body {
     background-color: #f44336; /* Red for errors */
 }
 
-.marker {
-    font-size: 20px;
-    color: #4A90E2;
-    text-shadow: 0 0 3px rgba(255, 255, 255, 0.8), 0 0 6px rgba(0, 0, 0, 0.6);
-    width: 24px;
-    height: 24px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    user-select: none;
-    -webkit-user-select: none;
-    /* Critical transform properties */
-    transform-origin: center center !important;
-    -webkit-transform-origin: center center !important;
-    -moz-transform-origin: center center !important;
-    -ms-transform-origin: center center !important;
-    /* Smooth rotation transition */
-    transition: transform 0.2s ease-out, opacity 0.1s ease-out;
-    /* Force hardware acceleration */
-    will-change: transform;
-    backface-visibility: hidden;
-    /* Ensure emoji renders clearly */
-    font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
-}
-
-/* CSS airplane icon that clearly shows direction */
-.marker.airplane-icon {
-    background: none;
-    position: relative;
-    width: 24px;
-    height: 24px;
-}
-
-/* Main fuselage (body) - vertical line */
-.marker.airplane-icon::before {
-    content: '';
-    position: absolute;
-    width: 2px;
-    height: 16px;
-    background: #4A90E2;
-    top: 2px;
-    left: 50%;
-    transform: translateX(-50%);
-    border-radius: 1px;
-}
-
-/* Wings - horizontal line */
-.marker.airplane-icon::after {
-    content: '';
-    position: absolute;
-    width: 14px;
-    height: 2px;
-    background: #4A90E2;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    border-radius: 1px;
-}
-
-/* Nose - pointing upward */
-.marker.airplane-icon {
-    background: linear-gradient(to top, transparent 0%, transparent 45%, #4A90E2 50%, transparent 55%, transparent 100%);
-    background-size: 2px 6px;
-    background-position: center 2px;
-    background-repeat: no-repeat;
-}
-
-.marker:hover {
-    transform: scale(1.2) rotate(var(--rotation-angle, 0deg)) !important;
-    filter: brightness(1.2) drop-shadow(0 0 8px rgba(74, 144, 226, 0.6));
-    opacity: 1 !important;
-}
-
-/* Force transform to work - override any Mapbox styles */
-.mapboxgl-marker .marker {
-    transform-origin: center center !important;
-}
-
-/* Ensure rotation is applied correctly */
-.marker[style*="transform"] {
-    transform-origin: center center !important;
+/* Ensure no global styles interfere with individual plane rotations */
+.mapboxgl-marker {
+    /* Allow individual plane transforms to work without interference */
 }
 
 /* Enhanced popup styling */
