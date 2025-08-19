@@ -55,23 +55,16 @@ body {
     background-color: #f44336; /* Red for errors */
 }
 
-/* Ensure no global styles interfere with individual plane rotations */
-.mapboxgl-marker {
-    /* Allow individual plane transforms to work without interference */
+/* Optimized for Mapbox symbol layer approach - no DOM marker conflicts */
+.mapboxgl-canvas {
+    /* Ensure smooth rendering for large datasets */
+    will-change: transform;
 }
 
-/* Override any Mapbox marker styles that might affect rotation */
-.mapboxgl-marker .plane {
-    /* Ensure individual rotation works */
-    transform-origin: 50% 50% !important;
-}
-
-/* Remove any inherited shadows or effects */
-.mapboxgl-marker .plane {
-    text-shadow: none !important;
-    box-shadow: none !important;
-    filter: none !important;
-    outline: none !important;
+/* Clean popup styling */
+.mapboxgl-popup-content {
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 /* Enhanced popup styling */

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import mapboxgl from 'mapbox-gl';
 import './FlightMap.css';
 
@@ -11,9 +11,24 @@ const FlightMap = ({ flights }) => {
     const [lng, setLng] = useState(10);
     const [lat, setLat] = useState(45);
     const [zoom, setZoom] = useState(2);
-    const markers = useRef({});
     const [isMapLoaded, setIsMapLoaded] = useState(false);
     const [selectedFlight, setSelectedFlight] = useState(null);
+    const updateFrame = useRef(null);
+
+    // Memoize valid flights to avoid recalculating
+    const validFlights = useMemo(() => {
+        return flights.filter(flight => 
+            flight && 
+            flight.icao24 && 
+            typeof flight.latitude === 'number' && 
+            typeof flight.longitude === 'number' &&
+            !isNaN(flight.latitude) && 
+            !isNaN(flight.longitude) &&
+            Math.abs(flight.latitude) <= 90 &&
+            Math.abs(flight.longitude) <= 180 &&
+            typeof flight.heading === 'number'
+        );
+    }, [flights]);
 
     useEffect(() => {
         if (map.current) return; // initialize map only once
@@ -23,7 +38,7 @@ const FlightMap = ({ flights }) => {
             style: 'mapbox://styles/mapbox/navigation-night-v1',
             center: [lng, lat],
             zoom: zoom,
-            // Performance optimizations
+            // Performance optimizations for large datasets
             antialias: false,
             preserveDrawingBuffer: false,
             renderWorldCopies: false,
@@ -32,6 +47,69 @@ const FlightMap = ({ flights }) => {
         });
 
         map.current.on('load', () => {
+            // Add airplane icon to the map style
+            map.current.loadImage('/global-real-time-flight-tracker/airplane-icon.svg', (error, image) => {
+                if (error) {
+                    // If image fails, we'll use text-based approach
+                    console.log('Airplane icon not found, using emoji approach');
+                }
+                if (image) map.current.addImage('airplane', image);
+            });
+
+            // Add source for flight data
+            map.current.addSource('flights', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: []
+                }
+            });
+
+            // Add layer for airplane symbols with rotation
+            map.current.addLayer({
+                id: 'flight-markers',
+                type: 'symbol',
+                source: 'flights',
+                layout: {
+                    'icon-image': 'airplane',
+                    'icon-size': 0.8,
+                    'icon-rotate': ['get', 'heading'],
+                    'icon-rotation-alignment': 'map',
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true,
+                    // Fallback to text if icon not available
+                    'text-field': '✈️',
+                    'text-size': 16,
+                    'text-rotate': ['get', 'heading'],
+                    'text-rotation-alignment': 'map',
+                    'text-allow-overlap': true,
+                    'text-ignore-placement': true
+                },
+                paint: {
+                    'text-color': '#4A90E2',
+                    'text-halo-width': 0 // No halo
+                }
+            });
+
+            // Add click handler for flight details
+            map.current.on('click', 'flight-markers', (e) => {
+                const flight = e.features[0].properties;
+                showHeadingPopup({
+                    ...flight,
+                    latitude: e.features[0].geometry.coordinates[1],
+                    longitude: e.features[0].geometry.coordinates[0]
+                });
+            });
+
+            // Change cursor on hover
+            map.current.on('mouseenter', 'flight-markers', () => {
+                map.current.getCanvas().style.cursor = 'pointer';
+            });
+
+            map.current.on('mouseleave', 'flight-markers', () => {
+                map.current.getCanvas().style.cursor = '';
+            });
+
             setIsMapLoaded(true);
         });
 
@@ -46,11 +124,14 @@ const FlightMap = ({ flights }) => {
             }, 100);
         });
 
-        // Add navigation control (the +/- zoom buttons)
+        // Add navigation control
         map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-        // Clean up on unmount to prevent issues with React.StrictMode
+        // Clean up on unmount
         return () => {
+            if (updateFrame.current) {
+                cancelAnimationFrame(updateFrame.current);
+            }
             if (map.current) {
                 map.current.remove();
                 map.current = null;
@@ -62,7 +143,6 @@ const FlightMap = ({ flights }) => {
     const showHeadingPopup = useCallback((flight) => {
         setSelectedFlight(flight);
         
-        // Create popup content with heading emphasis
         const popupContent = `
             <div class="flight-popup">
                 <h3>${flight.callsign || 'Unknown Flight'}</h3>
@@ -74,7 +154,6 @@ const FlightMap = ({ flights }) => {
             </div>
         `;
         
-        // Create and show popup
         const popup = new mapboxgl.Popup({ 
             offset: 25,
             closeButton: true,
@@ -85,109 +164,48 @@ const FlightMap = ({ flights }) => {
         .setHTML(popupContent)
         .addTo(map.current);
 
-        // Clear selected flight when popup is closed
         popup.on('close', () => {
             setSelectedFlight(null);
         });
     }, []);
 
-    // Create airplane marker element
-    const createAirplaneMarker = useCallback((flight) => {
-        const el = document.createElement('span');
-        el.className = 'plane';
-        
-        // Use airplane emoji with SVG fallback
-        el.innerHTML = '✈️';
-        
-        // Set individual rotation based on flight heading
-        const heading = flight.heading || 0;
-        // Airplane emoji ✈️ naturally points northeast (45°), so adjust for proper direction
-        const adjustedHeading = heading - 45;
-        el.style.transform = `rotate(${adjustedHeading}deg)`;
-        el.style.transformOrigin = '50% 50%';
-        
-        // Debug logging for verification
-        if (Math.random() < 0.01) {
-            console.log(`Flight ${flight.icao24}: heading=${heading}° → adjusted=${adjustedHeading}°`);
-        }
-        
-        // Add click handler for heading popup
-        el.addEventListener('click', (e) => {
-            e.stopPropagation();
-            showHeadingPopup(flight);
-        });
-        
-        // Add tooltip
-        el.title = `${flight.callsign || 'Unknown'} - Heading: ${Math.round(heading)}°`;
-        
-        return el;
-    }, [showHeadingPopup]);
-
+    // Update flight data with optimized batching
     useEffect(() => {
-        if (!isMapLoaded || !flights.length) return;
+        if (!isMapLoaded || !map.current) return;
 
-        // Filter valid flights with coordinates
-        const validFlights = flights.filter(flight => 
-            flight && 
-            flight.icao24 && 
-            typeof flight.latitude === 'number' && 
-            typeof flight.longitude === 'number' &&
-            !isNaN(flight.latitude) && 
-            !isNaN(flight.longitude) &&
-            Math.abs(flight.latitude) <= 90 &&
-            Math.abs(flight.longitude) <= 180
-        );
+        // Cancel any pending updates
+        if (updateFrame.current) {
+            cancelAnimationFrame(updateFrame.current);
+        }
 
-        const currentMarkerIds = Object.keys(markers.current);
-        const newFlightIds = new Set(validFlights.map(f => f.icao24));
-
-        // Remove markers for flights that are no longer present
-        currentMarkerIds.forEach(id => {
-            if (!newFlightIds.has(id)) {
-                if (markers.current[id]) {
-                    markers.current[id].remove();
-                    delete markers.current[id];
+        // Batch updates using requestAnimationFrame for smooth performance
+        updateFrame.current = requestAnimationFrame(() => {
+            // Convert flights to GeoJSON features with heading data
+            const features = validFlights.map(flight => ({
+                type: 'Feature',
+                properties: {
+                    icao24: flight.icao24,
+                    callsign: flight.callsign || 'Unknown',
+                    origin_country: flight.origin_country || 'Unknown',
+                    baro_altitude: flight.baro_altitude,
+                    velocity: flight.velocity,
+                    heading: flight.heading - 45 // Adjust for airplane emoji orientation
+                },
+                geometry: {
+                    type: 'Point',
+                    coordinates: [flight.longitude, flight.latitude]
                 }
+            }));
+
+            // Update the source data
+            if (map.current.getSource('flights')) {
+                map.current.getSource('flights').setData({
+                    type: 'FeatureCollection',
+                    features: features
+                });
             }
         });
-
-        // Process each flight
-        validFlights.forEach(flight => {
-            const { icao24, latitude, longitude } = flight;
-            const heading = flight.heading || 0;
-
-            if (markers.current[icao24]) {
-                // Update existing marker
-                const marker = markers.current[icao24];
-                marker.setLngLat([longitude, latitude]);
-                
-                // Update rotation only if heading changed (performance optimization)
-                const markerElement = marker.getElement();
-                if (markerElement) {
-                    // Airplane emoji ✈️ naturally points northeast (45°), so adjust for proper direction
-                    const adjustedHeading = heading - 45;
-                    const currentTransform = markerElement.style.transform;
-                    const newTransform = `rotate(${adjustedHeading}deg)`;
-                    
-                    // Only update transform if it changed (avoid unnecessary reflows)
-                    if (currentTransform !== newTransform) {
-                        markerElement.style.transform = newTransform;
-                        markerElement.style.transformOrigin = '50% 50%';
-                        markerElement.title = `${flight.callsign || 'Unknown'} - Heading: ${Math.round(heading)}°`;
-                    }
-                }
-            } else {
-                // Create new marker with airplane element
-                const airplaneElement = createAirplaneMarker(flight);
-                
-                const newMarker = new mapboxgl.Marker(airplaneElement)
-                    .setLngLat([longitude, latitude])
-                    .addTo(map.current);
-                
-                markers.current[icao24] = newMarker;
-            }
-        });
-    }, [flights, isMapLoaded, createAirplaneMarker]);
+    }, [validFlights, isMapLoaded]);
 
     return (
         <div className="flight-map-wrapper">
