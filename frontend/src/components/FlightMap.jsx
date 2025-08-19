@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import './FlightMap.css';
 
@@ -12,29 +12,37 @@ const FlightMap = ({ flights }) => {
     const [lat, setLat] = useState(45);
     const [zoom, setZoom] = useState(2);
     const markers = useRef({});
-    const popups = useRef({});
     const [isMapLoaded, setIsMapLoaded] = useState(false);
-    const updateTimeouts = useRef({});
 
     useEffect(() => {
         if (map.current) return; // initialize map only once
-
 
         map.current = new mapboxgl.Map({
             container: mapContainer.current,
             style: 'mapbox://styles/mapbox/navigation-night-v1',
             center: [lng, lat],
-            zoom: zoom
+            zoom: zoom,
+            // Performance optimizations
+            antialias: false,
+            preserveDrawingBuffer: false,
+            renderWorldCopies: false,
+            maxZoom: 12,
+            minZoom: 1
         });
 
         map.current.on('load', () => {
             setIsMapLoaded(true);
         });
 
+        // Throttle move events for better performance
+        let moveTimeout;
         map.current.on('move', () => {
-            setLng(map.current.getCenter().lng.toFixed(4));
-            setLat(map.current.getCenter().lat.toFixed(4));
-            setZoom(map.current.getZoom().toFixed(2));
+            if (moveTimeout) clearTimeout(moveTimeout);
+            moveTimeout = setTimeout(() => {
+                setLng(map.current.getCenter().lng.toFixed(4));
+                setLat(map.current.getCenter().lat.toFixed(4));
+                setZoom(map.current.getZoom().toFixed(2));
+            }, 100);
         });
 
         // Add navigation control (the +/- zoom buttons)
@@ -42,160 +50,137 @@ const FlightMap = ({ flights }) => {
 
         // Clean up on unmount to prevent issues with React.StrictMode
         return () => {
-            map.current.remove();
-            map.current = null;
+            if (map.current) {
+                map.current.remove();
+                map.current = null;
+            }
         };
     }, []);
 
-    // Memoized function to calculate rotation angle for airplane emoji
+    // Simple and reliable rotation calculation
     const calculateRotation = useCallback((trueTrack) => {
-        if (!trueTrack || isNaN(trueTrack)) return 0;
+        if (typeof trueTrack !== 'number' || isNaN(trueTrack)) {
+            console.log('Invalid true_track:', trueTrack);
+            return 0;
+        }
         
         // Normalize the angle to be between 0 and 360 degrees
-        let normalizedAngle = trueTrack % 360;
-        if (normalizedAngle < 0) normalizedAngle += 360;
+        let angle = trueTrack % 360;
+        if (angle < 0) angle += 360;
         
-        // The airplane emoji ✈️ points northeast by default (around 45 degrees)
-        // We need to adjust it to point in the correct direction
-        // Subtract 45 degrees to align with the emoji's natural orientation
-        return normalizedAngle - 45;
+        console.log('Calculating rotation for true_track:', trueTrack, 'normalized:', angle);
+        
+        // The airplane emoji ✈️ naturally points up-right (northeast, ~45°)
+        // true_track: 0° = North, 90° = East, 180° = South, 270° = West
+        // We need to adjust for the emoji's natural orientation
+        return angle - 45;
     }, []);
 
-    // Optimized function to update marker rotation with debouncing
-    const updateMarkerRotation = useCallback((markerElement, rotationAngle, icao24) => {
-        if (!markerElement) return;
-        
-        // Clear any existing timeout for this marker
-        if (updateTimeouts.current[icao24]) {
-            clearTimeout(updateTimeouts.current[icao24]);
-        }
-        
-        // Debounce rotation updates to improve performance
-        updateTimeouts.current[icao24] = setTimeout(() => {
-            requestAnimationFrame(() => {
-                markerElement.style.setProperty('--rotation', `${rotationAngle}deg`);
-                markerElement.style.transform = `rotate(${rotationAngle}deg)`;
-            });
-            delete updateTimeouts.current[icao24];
-        }, 50);
-    }, []);
-
-    // Memoized popup creation to avoid recreating on every render
+    // Simple popup creation
     const createPopup = useCallback((flight) => {
-        const { icao24, callsign, origin_country, baro_altitude, velocity, true_track } = flight;
-        
-        if (popups.current[icao24]) {
-            return popups.current[icao24];
-        }
+        const { callsign, icao24, origin_country, baro_altitude, velocity, true_track } = flight;
         
         const popupContent = `
             <div class="flight-popup">
-                <h3>${callsign || 'N/A'}</h3>
+                <h3>${callsign || 'Unknown'}</h3>
                 <p><strong>ICAO24:</strong> ${icao24}</p>
-                <p><strong>Origin:</strong> ${origin_country}</p>
-                <p><strong>Altitude:</strong> ${baro_altitude ? `${baro_altitude}m` : 'N/A'}</p>
-                <p><strong>Speed:</strong> ${velocity ? `${velocity} m/s` : 'N/A'}</p>
-                <p><strong>Heading:</strong> ${true_track ? `${true_track.toFixed(1)}°` : 'N/A'}</p>
+                <p><strong>Origin:</strong> ${origin_country || 'Unknown'}</p>
+                <p><strong>Altitude:</strong> ${baro_altitude ? `${Math.round(baro_altitude)}m` : 'N/A'}</p>
+                <p><strong>Speed:</strong> ${velocity ? `${Math.round(velocity * 3.6)} km/h` : 'N/A'}</p>
+                <p><strong>Heading:</strong> ${typeof true_track === 'number' ? `${Math.round(true_track)}°` : 'N/A'}</p>
             </div>
         `;
         
-        const popup = new mapboxgl.Popup({ 
+        return new mapboxgl.Popup({ 
             offset: 25,
             closeButton: true,
-            closeOnClick: false
+            closeOnClick: false,
+            maxWidth: '250px'
         }).setHTML(popupContent);
-        
-        popups.current[icao24] = popup;
-        return popup;
     }, []);
 
-    // Optimized flights processing with useMemo
-    const processedFlights = useMemo(() => {
-        return flights.filter(flight => 
-            flight.latitude && 
-            flight.longitude && 
-            !isNaN(flight.latitude) && 
-            !isNaN(flight.longitude)
-        );
-    }, [flights]);
-
     useEffect(() => {
-        if (!isMapLoaded || !processedFlights.length) return;
+        if (!isMapLoaded || !flights.length) return;
+
+        console.log('Processing flights:', flights.length);
+
+        // Filter valid flights
+        const validFlights = flights.filter(flight => 
+            flight && 
+            flight.icao24 && 
+            typeof flight.latitude === 'number' && 
+            typeof flight.longitude === 'number' &&
+            !isNaN(flight.latitude) && 
+            !isNaN(flight.longitude) &&
+            Math.abs(flight.latitude) <= 90 &&
+            Math.abs(flight.longitude) <= 180
+        );
+
+        console.log('Valid flights:', validFlights.length);
 
         const currentMarkerIds = Object.keys(markers.current);
-        const newFlightIds = new Set(processedFlights.map(f => f.icao24));
+        const newFlightIds = new Set(validFlights.map(f => f.icao24));
 
-        // Remove markers and popups for flights that are no longer present
+        // Remove markers for flights that are no longer present
         currentMarkerIds.forEach(id => {
             if (!newFlightIds.has(id)) {
                 if (markers.current[id]) {
                     markers.current[id].remove();
                     delete markers.current[id];
                 }
-                if (popups.current[id]) {
-                    delete popups.current[id];
-                }
-                if (updateTimeouts.current[id]) {
-                    clearTimeout(updateTimeouts.current[id]);
-                    delete updateTimeouts.current[id];
-                }
             }
         });
 
-        // Batch DOM updates using requestAnimationFrame
-        requestAnimationFrame(() => {
-            processedFlights.forEach(flight => {
-                const { icao24, latitude, longitude, true_track } = flight;
+        // Process each flight
+        validFlights.forEach(flight => {
+            const { icao24, latitude, longitude, true_track } = flight;
 
-                if (markers.current[icao24]) {
-                    // Update existing marker position and rotation
-                    const marker = markers.current[icao24];
-                    marker.setLngLat([longitude, latitude]);
+            if (markers.current[icao24]) {
+                // Update existing marker
+                const marker = markers.current[icao24];
+                marker.setLngLat([longitude, latitude]);
+                
+                // Update rotation immediately
+                const rotationAngle = calculateRotation(true_track);
+                const markerElement = marker.getElement();
+                
+                if (markerElement) {
+                    markerElement.style.transform = `rotate(${rotationAngle}deg)`;
+                    markerElement.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
+                    markerElement.title = typeof true_track === 'number' ? 
+                        `Heading: ${Math.round(true_track)}°` : 
+                        'No heading data';
                     
-                    // Update rotation smoothly with debouncing
-                    const rotationAngle = calculateRotation(true_track);
-                    const markerElement = marker.getElement();
-                    updateMarkerRotation(markerElement, rotationAngle, icao24);
-                    
-                    // Update visual indicator efficiently
-                    if (markerElement) {
-                        const hasHeading = true_track && !isNaN(true_track);
-                        markerElement.style.opacity = hasHeading ? '1' : '0.6';
-                        markerElement.title = hasHeading ? 
-                            `Heading: ${true_track.toFixed(1)}°` : 
-                            'No heading data available';
-                    }
-                } else {
-                    // Create a new marker with optimized setup
-                    const el = document.createElement('div');
-                    el.className = 'marker';
-                    el.innerHTML = '✈️';
-                    
-                    // Set initial rotation immediately without debouncing
-                    const rotationAngle = calculateRotation(true_track);
-                    el.style.setProperty('--rotation', `${rotationAngle}deg`);
-                    el.style.transform = `rotate(${rotationAngle}deg)`;
-                    
-                    // Set visual indicator
-                    const hasHeading = true_track && !isNaN(true_track);
-                    el.style.opacity = hasHeading ? '1' : '0.6';
-                    el.title = hasHeading ? 
-                        `Heading: ${true_track.toFixed(1)}°` : 
-                        'No heading data available';
-
-                    // Create popup only when needed
-                    const popup = createPopup(flight);
-
-                    const newMarker = new mapboxgl.Marker(el)
-                        .setLngLat([longitude, latitude])
-                        .setPopup(popup)
-                        .addTo(map.current);
-                    
-                    markers.current[icao24] = newMarker;
+                    console.log(`Updated marker ${icao24} with rotation: ${rotationAngle}°`);
                 }
-            });
+            } else {
+                // Create new marker
+                const el = document.createElement('div');
+                el.className = 'marker';
+                el.innerHTML = '✈️';
+                
+                // Set rotation immediately
+                const rotationAngle = calculateRotation(true_track);
+                el.style.transform = `rotate(${rotationAngle}deg)`;
+                el.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
+                el.title = typeof true_track === 'number' ? 
+                    `Heading: ${Math.round(true_track)}°` : 
+                    'No heading data';
+
+                console.log(`Created marker ${icao24} with rotation: ${rotationAngle}°, true_track: ${true_track}`);
+
+                // Create popup
+                const popup = createPopup(flight);
+
+                const newMarker = new mapboxgl.Marker(el)
+                    .setLngLat([longitude, latitude])
+                    .setPopup(popup)
+                    .addTo(map.current);
+                
+                markers.current[icao24] = newMarker;
+            }
         });
-    }, [processedFlights, isMapLoaded, calculateRotation, updateMarkerRotation, createPopup]);
+    }, [flights, isMapLoaded, calculateRotation, createPopup]);
 
     return (
         <div className="flight-map-wrapper">

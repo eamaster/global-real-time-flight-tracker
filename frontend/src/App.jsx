@@ -59,8 +59,8 @@ const App = () => {
 
     useEffect(() => {
         fetchFlights();
-        // Reduced polling frequency to 15 seconds for better performance
-        const interval = setInterval(fetchFlights, 15000);
+        // Further reduced polling frequency to 20 seconds for better performance
+        const interval = setInterval(fetchFlights, 20000);
 
         return () => {
             clearInterval(interval);
