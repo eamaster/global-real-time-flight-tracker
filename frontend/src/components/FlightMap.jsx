@@ -171,9 +171,9 @@ const FlightMap = ({ flights }) => {
         map.current.on('move', () => {
             if (moveTimeout) clearTimeout(moveTimeout);
             moveTimeout = setTimeout(() => {
-                setLng(map.current.getCenter().lng.toFixed(4));
-                setLat(map.current.getCenter().lat.toFixed(4));
-                setZoom(map.current.getZoom().toFixed(2));
+            setLng(map.current.getCenter().lng.toFixed(4));
+            setLat(map.current.getCenter().lat.toFixed(4));
+            setZoom(map.current.getZoom().toFixed(2));
             }, 100);
         });
 
@@ -186,30 +186,110 @@ const FlightMap = ({ flights }) => {
                 cancelAnimationFrame(updateFrame.current);
             }
             if (map.current) {
-                map.current.remove();
-                map.current = null;
+            map.current.remove();
+            map.current = null;
             }
         };
+    }, []);
+
+    // Infer destination from flight callsign when possible
+    const inferDestination = useCallback((callsign, origin_country) => {
+        if (!callsign || callsign.trim() === '') return 'Unknown';
+        
+        const cleanCallsign = callsign.trim();
+        
+        // Common airline route patterns and hub destinations
+        const routePatterns = {
+            // US Major Airlines
+            'AAL': 'Dallas/Miami/Phoenix Hub',
+            'DAL': 'Atlanta/Detroit/Minneapolis Hub', 
+            'UAL': 'Chicago/Denver/San Francisco Hub',
+            'SWA': 'US Domestic Network',
+            'JBU': 'New York/Boston/Fort Lauderdale Hub',
+            'ASA': 'Seattle/Portland Hub',
+            'FFT': 'Memphis Hub (Cargo)',
+            'FDX': 'Memphis Hub (Cargo)',
+            'UPS': 'Louisville Hub (Cargo)',
+            
+            // European Airlines
+            'BAW': 'London Heathrow Hub',
+            'AFR': 'Paris Charles de Gaulle Hub',
+            'DLH': 'Frankfurt/Munich Hub',
+            'KLM': 'Amsterdam Schiphol Hub',
+            'SWR': 'Zurich Hub',
+            'AUA': 'Vienna Hub',
+            'SAS': 'Copenhagen/Stockholm Hub',
+            'FIN': 'Helsinki Hub',
+            'LOT': 'Warsaw Hub',
+            'CSA': 'Prague Hub',
+            'IBE': 'Madrid Hub',
+            'TAP': 'Lisbon Hub',
+            'AZA': 'Rome/Milan Hub',
+            'TUR': 'Istanbul Hub',
+            
+            // Asian Airlines
+            'JAL': 'Tokyo Haneda/Narita Hub',
+            'ANA': 'Tokyo Haneda/Narita Hub',
+            'KAL': 'Seoul Incheon Hub',
+            'AAR': 'Seoul Incheon Hub',
+            'CCA': 'Beijing Capital Hub',
+            'CES': 'Shanghai Pudong Hub',
+            'SIA': 'Singapore Changi Hub',
+            'THA': 'Bangkok Suvarnabhumi Hub',
+            'MAS': 'Kuala Lumpur Hub',
+            'EVA': 'Taipei Hub',
+            'CAL': 'Taipei Hub',
+            
+            // Middle East & Africa
+            'UAE': 'Dubai International Hub',
+            'QTR': 'Doha Hamad Hub',
+            'SVA': 'Riyadh/Jeddah Hub',
+            'ETH': 'Addis Ababa Hub',
+            'SAA': 'Johannesburg Hub',
+            
+            // Others
+            'AFL': 'Moscow Sheremetyevo Hub',
+            'SBI': 'Novosibirsk Hub',
+            'QFA': 'Sydney/Melbourne Hub',
+            'ANZ': 'Auckland Hub'
+        };
+        
+        // Extract airline code (first 3 characters)
+        const airlineCode = cleanCallsign.substring(0, 3);
+        
+        if (routePatterns[airlineCode]) {
+            return routePatterns[airlineCode];
+        }
+        
+        // Fallback: use origin country if no pattern matched
+        if (origin_country && origin_country !== 'Unknown') {
+            return `${origin_country} Region`;
+        }
+        
+        return 'Unknown';
     }, []);
 
     // Show heading popup for clicked flight
     const showHeadingPopup = useCallback((flight) => {
         setSelectedFlight(flight);
         
-        const popupContent = `
+        const destination = inferDestination(flight.callsign, flight.origin_country);
+
+            const popupContent = `
             <div class="flight-popup">
                 <h3>${flight.callsign || 'Unknown Flight'}</h3>
                 <p><strong>ICAO24:</strong> ${flight.icao24}</p>
                 <p><strong>Origin:</strong> ${flight.origin_country || 'Unknown'}</p>
+                <p><strong>Destination:</strong> ${destination}</p>
                 <p><strong>Altitude:</strong> ${flight.baro_altitude ? `${Math.round(flight.baro_altitude)}m` : 'N/A'}</p>
                 <p><strong>Speed:</strong> ${flight.velocity ? `${Math.round(flight.velocity * 3.6)} km/h` : 'N/A'}</p>
                 <p class="heading-highlight"><strong>True Course:</strong> ${typeof flight.true_track === 'number' ? `${Math.round(flight.true_track)}°` : 'N/A'}</p>
                 <p><strong>Display Rotation:</strong> ${typeof flight.heading === 'number' ? `${Math.round(flight.heading)}°` : 'N/A'}</p>
                 <p><strong>Velocity:</strong> ${flight.velocity ? `${Math.round(flight.velocity)} m/s` : 'N/A'}</p>
                 <p><em>0°=North, 90°=East, 180°=South, 270°=West</em></p>
-            </div>
-        `;
-        
+                </div>
+            `;
+
         const popup = new mapboxgl.Popup({ 
             offset: 25,
             closeButton: true,
@@ -223,7 +303,7 @@ const FlightMap = ({ flights }) => {
         popup.on('close', () => {
             setSelectedFlight(null);
         });
-    }, []);
+    }, [inferDestination]);
 
     // Update flight data with optimized batching and smooth interpolation
     useEffect(() => {
