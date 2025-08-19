@@ -1,37 +1,6 @@
 // Cloudflare Workers version of the flight tracker backend
 // This replaces the Express.js server for deployment on Cloudflare
 
-// ——— CORS and caching helpers ———
-const CORS_HEADERS = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization',
-};
-
-const CACHE_HEADERS = {
-    // Edge cache for 12s to respect Cloudflare CPU limits while keeping data fresh
-    // caches.default honors s-maxage for TTL when using the Cache API
-    'Cache-Control': 'public, max-age=0, s-maxage=12',
-};
-
-function withCORS(response, extra = {}) {
-    const headers = new Headers(response.headers);
-    Object.entries(CORS_HEADERS).forEach(([k, v]) => headers.set(k, v));
-    Object.entries(CACHE_HEADERS).forEach(([k, v]) => headers.set(k, v));
-    Object.entries(extra).forEach(([k, v]) => headers.set(k, v));
-    return new Response(response.body, { status: response.status, headers });
-}
-
-function jsonResponse(obj, status = 200, extra = {}) {
-    const headers = new Headers({
-        'Content-Type': 'application/json',
-        ...CORS_HEADERS,
-        ...CACHE_HEADERS,
-        ...extra,
-    });
-    return new Response(JSON.stringify(obj), { status, headers });
-}
-
 let accessToken = null;
 
 // Function to get OAuth2 token from OpenSky Network
@@ -105,7 +74,6 @@ const fetchFlightData = async (request) => {
             headers['Authorization'] = `Bearer ${accessToken}`;
         }
         
-        // Upstream fetch (let Cloudflare cache upstream for a short time as well)
         const response = await fetch(apiUrl, { headers });
 
         if (!response.ok) {
@@ -129,7 +97,18 @@ const fetchFlightData = async (request) => {
                     throw new Error('Failed to refresh authentication token');
                 }
             } else if (response.status === 429) {
-                return jsonResponse({ message: 'Rate limit exceeded. Please try again later.' }, 429);
+                return new Response(
+                    JSON.stringify({ message: 'Rate limit exceeded. Please try again later.' }),
+                    { 
+                        status: 429,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Access-Control-Allow-Origin': '*',
+                            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                        }
+                    }
+                );
             } else {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -140,47 +119,68 @@ const fetchFlightData = async (request) => {
 
     } catch (error) {
         console.error('Error fetching flight data from OpenSky:', error.message);
-        return jsonResponse({ message: 'Failed to fetch flight data.' }, 500);
+        return new Response(
+            JSON.stringify({ message: 'Failed to fetch flight data.' }),
+            { 
+                status: 500,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                }
+            }
+        );
     }
 };
 
 // Function to process and structure flight data
 const processFlightData = (data) => {
-    const states = Array.isArray(data?.states) ? data.states : [];
+    const flights = data.states ? data.states.map(state => ({
+        icao24: state[0],
+        callsign: state[1] ? state[1].trim() : null,
+        origin_country: state[2],
+        time_position: state[3],
+        last_contact: state[4],
+        longitude: state[5],
+        latitude: state[6],
+        baro_altitude: state[7],
+        on_ground: state[8],
+        velocity: state[9],
+        true_track: state[10], // heading
+        vertical_rate: state[11],
+        sensors: state[12],
+        geo_altitude: state[13],
+        squawk: state[14],
+        spi: state[15],
+        position_source: state[16],
+    })).filter(flight => flight.latitude && flight.longitude) : []; // Filter out flights with no coordinates
 
-    // Fast path: imperative loop to reduce CPU and allocations
-    const flights = [];
-    for (let i = 0; i < states.length; i++) {
-        const s = states[i];
-        const lon = s[5];
-        const lat = s[6];
-        if (typeof lon !== 'number' || typeof lat !== 'number') continue;
-        flights.push({
-            icao24: s[0],
-            callsign: s[1] ? s[1].trim() : null,
-            origin_country: s[2],
-            time_position: s[3],
-            last_contact: s[4],
-            longitude: lon,
-            latitude: lat,
-            baro_altitude: s[7],
-            on_ground: s[8],
-            velocity: s[9],
-            true_track: s[10],
-            vertical_rate: s[11],
-            sensors: s[12],
-            geo_altitude: s[13],
-            squawk: s[14],
-            spi: s[15],
-            position_source: s[16],
-        });
-    }
-
-    return jsonResponse({ flights }, 200);
+    return new Response(
+        JSON.stringify({ flights }),
+        {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+            }
+        }
+    );
 };
 
 // Handle CORS preflight requests
-const handleCORS = () => new Response(null, { status: 200, headers: { ...CORS_HEADERS, ...CACHE_HEADERS } });
+const handleCORS = () => {
+    return new Response(null, {
+        status: 200,
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+        }
+    });
+};
 
 // Main event listener for Cloudflare Workers
 addEventListener('fetch', event => {
@@ -197,35 +197,41 @@ async function handleRequest(request) {
     
     // Handle API routes
     if (url.pathname === '/api/flights' && request.method === 'GET') {
-        // Edge cache: key includes query to keep bbox-specific entries distinct
-        const cache = caches.default;
-        const cacheKey = new Request(request.url, request);
-
-        // Try cache first to avoid CPU spikes and ensure CORS headers on cached responses
-        const cached = await cache.match(cacheKey);
-        if (cached) {
-            return withCORS(cached);
-        }
-
-        const fresh = await fetchFlightData(request);
-        // Store successful responses only
-        if (fresh.status === 200) {
-            // Ensure CORS + cache headers on the stored response
-            const store = withCORS(fresh);
-            event?.waitUntil?.(cache.put(cacheKey, store.clone()));
-            return store;
-        }
-        return withCORS(fresh);
+        return await fetchFlightData(request);
     }
     
     // Handle root path with basic info
     if (url.pathname === '/') {
-        return jsonResponse({ 
-            message: 'Global Real-Time Flight Tracker API',
-            endpoints: { '/api/flights': 'GET - Fetch real-time flight data' }
-        }, 200);
+        return new Response(
+            JSON.stringify({ 
+                message: 'Global Real-Time Flight Tracker API',
+                endpoints: {
+                    '/api/flights': 'GET - Fetch real-time flight data'
+                }
+            }),
+            {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                }
+            }
+        );
     }
     
     // 404 for other routes
-    return jsonResponse({ message: 'Not Found' }, 404);
+    return new Response(
+        JSON.stringify({ message: 'Not Found' }),
+        { 
+            status: 404,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+            }
+        }
+    );
 }

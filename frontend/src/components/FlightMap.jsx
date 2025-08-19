@@ -13,104 +13,22 @@ const FlightMap = ({ flights }) => {
     const [zoom, setZoom] = useState(2);
     const [isMapLoaded, setIsMapLoaded] = useState(false);
     const [selectedFlight, setSelectedFlight] = useState(null);
-    
-    // Animation and interpolation state
-    const animationFrame = useRef(null);
-    const flightStates = useRef(new Map()); // Store interpolation state for each flight
-    const lastUpdateTime = useRef(Date.now());
+    const updateFrame = useRef(null);
 
-    // Flight interpolation and animation system
-    const FlightAnimator = {
-        // Initialize or update flight state for interpolation
-        updateFlightState: (flight, currentTime) => {
-            const flightId = flight.icao24;
-            const existingState = flightStates.current.get(flightId);
-            
-            const newState = {
-                // Current real position from API
-                realPosition: [flight.longitude, flight.latitude],
-                realHeading: flight.true_track || 0,
-                velocity: flight.velocity || 0, // m/s
-                lastUpdateTime: currentTime,
-                
-                // Interpolated position (starts at real position)
-                currentPosition: existingState?.currentPosition || [flight.longitude, flight.latitude],
-                currentHeading: existingState?.currentHeading || (flight.true_track || 0),
-                
-                // Previous state for smooth transitions
-                previousPosition: existingState?.realPosition || [flight.longitude, flight.latitude],
-                previousHeading: existingState?.realHeading || (flight.true_track || 0),
-                previousUpdateTime: existingState?.lastUpdateTime || currentTime,
-                
-                // Flight metadata
-                callsign: flight.callsign,
-                origin_country: flight.origin_country,
-                baro_altitude: flight.baro_altitude,
-                
-                // Animation state
-                isStale: false,
-                opacity: 1
-            };
-            
-            flightStates.current.set(flightId, newState);
-            return newState;
-        },
-
-        // Interpolate position between updates using velocity vector
-        interpolatePosition: (state, currentTime, deltaTime) => {
-            if (!state || state.velocity < 2.57) return state.currentPosition; // < 5 knots, freeze position
-            
-            const timeSinceUpdate = (currentTime - state.lastUpdateTime) / 1000; // seconds
-            const maxPredictionTime = Math.min(10, timeSinceUpdate); // Cap at 10 seconds
-            
-            // Convert velocity from m/s to degrees per second (approximate)
-            const metersPerDegree = 111000; // Approximate meters per degree at equator
-            const velocityDegreesPerSec = state.velocity / metersPerDegree;
-            
-            // Calculate velocity vector components
-            const headingRad = (state.realHeading * Math.PI) / 180;
-            const velocityLat = velocityDegreesPerSec * Math.cos(headingRad);
-            const velocityLon = velocityDegreesPerSec * Math.sin(headingRad) / Math.cos((state.realPosition[1] * Math.PI) / 180);
-            
-            // Predict position based on velocity vector
-            const predictedLon = state.realPosition[0] + (velocityLon * maxPredictionTime);
-            const predictedLat = state.realPosition[1] + (velocityLat * maxPredictionTime);
-            
-            // Smooth interpolation with ease-in/out
-            const t = Math.min(deltaTime / 1000, 1); // Normalize to 0-1 over 1 second
-            const easeT = 0.5 * (1 - Math.cos(Math.PI * t)); // Smooth ease-in/out
-            
-            const interpolatedLon = state.previousPosition[0] + (predictedLon - state.previousPosition[0]) * easeT;
-            const interpolatedLat = state.previousPosition[1] + (predictedLat - state.previousPosition[1]) * easeT;
-            
-            return [interpolatedLon, interpolatedLat];
-        },
-
-        // Smooth heading changes with low-pass filter
-        interpolateHeading: (state, deltaTime) => {
-            if (!state) return 0;
-            
-            const targetHeading = state.realHeading;
-            const currentHeading = state.currentHeading;
-            
-            // Calculate shortest angular distance
-            let headingDiff = targetHeading - currentHeading;
-            if (headingDiff > 180) headingDiff -= 360;
-            if (headingDiff < -180) headingDiff += 360;
-            
-            // Low-pass filter for smooth heading changes (damping factor)
-            const dampingFactor = Math.min(deltaTime / 2000, 1); // 2 second transition
-            const smoothedHeading = currentHeading + (headingDiff * dampingFactor);
-            
-            // Normalize to 0-360 range
-            return ((smoothedHeading % 360) + 360) % 360;
-        },
-
-        // Check if flight data is stale
-        isFlightStale: (state, currentTime) => {
-            return (currentTime - state.lastUpdateTime) > 20000; // 20 seconds
-        }
-    };
+    // Memoize valid flights to avoid recalculating
+    const validFlights = useMemo(() => {
+        return flights.filter(flight => 
+            flight && 
+            flight.icao24 && 
+            typeof flight.latitude === 'number' && 
+            typeof flight.longitude === 'number' &&
+            !isNaN(flight.latitude) && 
+            !isNaN(flight.longitude) &&
+            Math.abs(flight.latitude) <= 90 &&
+            Math.abs(flight.longitude) <= 180 &&
+            typeof flight.heading === 'number'
+        );
+    }, [flights]);
 
     useEffect(() => {
         if (map.current) return; // initialize map only once
@@ -120,7 +38,7 @@ const FlightMap = ({ flights }) => {
             style: 'mapbox://styles/mapbox/navigation-night-v1',
             center: [lng, lat],
             zoom: zoom,
-            // Performance optimizations for smooth animation
+            // Performance optimizations for large datasets
             antialias: false,
             preserveDrawingBuffer: false,
             renderWorldCopies: false,
@@ -129,13 +47,73 @@ const FlightMap = ({ flights }) => {
         });
 
         map.current.on('load', () => {
-            // Add source for flight data
+            // Create airplane icon programmatically to ensure it loads
+            const createAirplaneIcon = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = 32;
+                canvas.height = 32;
+                
+                // Draw airplane pointing up (North)
+                ctx.fillStyle = '#4A90E2';
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                
+                // Main body
+                ctx.beginPath();
+                ctx.moveTo(16, 4);
+                ctx.lineTo(18, 10);
+                ctx.lineTo(26, 10);
+                ctx.lineTo(23, 13);
+                ctx.lineTo(19, 13);
+                ctx.lineTo(16, 18);
+                ctx.lineTo(13, 13);
+                ctx.lineTo(9, 13);
+                ctx.lineTo(6, 10);
+                ctx.lineTo(14, 10);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Tail
+                ctx.beginPath();
+                ctx.moveTo(16, 18);
+                ctx.lineTo(19, 24);
+                ctx.lineTo(22, 24);
+                ctx.lineTo(23, 27);
+                ctx.lineTo(20, 27);
+                ctx.lineTo(16, 28);
+                ctx.lineTo(12, 27);
+                ctx.lineTo(9, 27);
+                ctx.lineTo(10, 24);
+                ctx.lineTo(13, 24);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                return canvas;
+            };
+            
+            // Add the airplane icon
+            try {
+                const airplaneCanvas = createAirplaneIcon();
+                map.current.addImage('airplane', airplaneCanvas);
+                console.log('Airplane icon created successfully');
+            } catch (error) {
+                console.log('Failed to create airplane icon, using emoji fallback');
+            }
+
+            // Add source for flight data with smooth transitions
             map.current.addSource('flights', {
                 type: 'geojson',
                 data: {
                     type: 'FeatureCollection',
                     features: []
-                }
+                },
+                // Enable smooth transitions between position updates
+                lineMetrics: true,
+                tolerance: 0.375,
+                maxzoom: 14
             });
 
             // Add layer for airplane symbols with rotation
@@ -144,8 +122,9 @@ const FlightMap = ({ flights }) => {
                 type: 'symbol',
                 source: 'flights',
                 layout: {
+                    // Use emoji text for all markers (reliable cross-platform)
                     'text-field': '✈️',
-                    'text-size': 28,
+                    'text-size': 28, // Even larger emoji for better visibility
                     'text-rotate': ['get', 'heading'],
                     'text-rotation-alignment': 'map',
                     'text-allow-overlap': true,
@@ -154,26 +133,28 @@ const FlightMap = ({ flights }) => {
                 },
                 paint: {
                     'text-color': '#4A90E2',
-                    'text-halo-width': 0,
-                    'text-opacity': ['get', 'opacity']
+                    'text-halo-width': 0, // No halo
+                    'text-opacity': 1
                 }
             });
 
-            // Click handler for flight details
+            // Add smooth transitions for position changes
+            map.current.setPaintProperty('flight-markers', 'text-opacity-transition', {
+                duration: 300,
+                delay: 0
+            });
+
+            // Add click handler for flight details
             map.current.on('click', 'flight-markers', (e) => {
-                const properties = e.features[0].properties;
-                const flightState = flightStates.current.get(properties.icao24);
-                if (flightState) {
-                    showHeadingPopup({
-                        ...properties,
-                        ...flightState,
-                        longitude: e.features[0].geometry.coordinates[0],
-                        latitude: e.features[0].geometry.coordinates[1]
-                    });
-                }
+                const flight = e.features[0].properties;
+                showHeadingPopup({
+                    ...flight,
+                    latitude: e.features[0].geometry.coordinates[1],
+                    longitude: e.features[0].geometry.coordinates[0]
+                });
             });
 
-            // Hover effects
+            // Change cursor on hover
             map.current.on('mouseenter', 'flight-markers', () => {
                 map.current.getCanvas().style.cursor = 'pointer';
             });
@@ -183,106 +164,43 @@ const FlightMap = ({ flights }) => {
             });
 
             setIsMapLoaded(true);
-            
-            // Start 60fps animation loop
-            startAnimationLoop();
         });
 
-        // Throttle move events
+        // Throttle move events for better performance
         let moveTimeout;
         map.current.on('move', () => {
             if (moveTimeout) clearTimeout(moveTimeout);
             moveTimeout = setTimeout(() => {
-                setLng(map.current.getCenter().lng.toFixed(4));
-                setLat(map.current.getCenter().lat.toFixed(4));
-                setZoom(map.current.getZoom().toFixed(2));
+            setLng(map.current.getCenter().lng.toFixed(4));
+            setLat(map.current.getCenter().lat.toFixed(4));
+            setZoom(map.current.getZoom().toFixed(2));
             }, 100);
         });
 
+        // Add navigation control
         map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
+        // Clean up on unmount
         return () => {
-            if (animationFrame.current) {
-                cancelAnimationFrame(animationFrame.current);
+            if (updateFrame.current) {
+                cancelAnimationFrame(updateFrame.current);
             }
             if (map.current) {
-                map.current.remove();
-                map.current = null;
+            map.current.remove();
+            map.current = null;
             }
         };
     }, []);
 
-    // 60fps animation loop for smooth interpolation
-    const startAnimationLoop = useCallback(() => {
-        const animate = (currentTime) => {
-            if (!map.current || !isMapLoaded) {
-                animationFrame.current = requestAnimationFrame(animate);
-                return;
-            }
-
-            const deltaTime = currentTime - lastUpdateTime.current;
-            lastUpdateTime.current = currentTime;
-
-            // Update all flight positions and headings
-            const features = [];
-            
-            flightStates.current.forEach((state, flightId) => {
-                // Check if flight is stale
-                if (FlightAnimator.isFlightStale(state, currentTime)) {
-                    state.isStale = true;
-                    state.opacity = Math.max(0.3, state.opacity - 0.02); // Fade out
-                } else {
-                    state.opacity = Math.min(1, state.opacity + 0.05); // Fade in
-                }
-
-                // Interpolate position and heading
-                state.currentPosition = FlightAnimator.interpolatePosition(state, currentTime, deltaTime);
-                state.currentHeading = FlightAnimator.interpolateHeading(state, deltaTime);
-                
-                // Adjust heading for airplane emoji orientation (points northeast naturally)
-                const adjustedHeading = state.currentHeading - 45;
-
-                features.push({
-                    type: 'Feature',
-                    properties: {
-                        icao24: flightId,
-                        callsign: state.callsign || 'Unknown',
-                        heading: adjustedHeading,
-                        opacity: state.opacity,
-                        true_track: state.realHeading,
-                        velocity: state.velocity
-                    },
-                    geometry: {
-                        type: 'Point',
-                        coordinates: state.currentPosition
-                    }
-                });
-            });
-
-            // Update map data
-            if (map.current.getSource('flights')) {
-                map.current.getSource('flights').setData({
-                    type: 'FeatureCollection',
-                    features: features
-                });
-            }
-
-            // Continue animation loop
-            animationFrame.current = requestAnimationFrame(animate);
-        };
-
-        animationFrame.current = requestAnimationFrame(animate);
-    }, [isMapLoaded]);
-
-    // Infer destination from flight callsign
+    // Infer destination from flight callsign when possible
     const inferDestination = useCallback((callsign, origin_country) => {
         if (!callsign || callsign.trim() === '') return 'Unknown';
         
         const cleanCallsign = callsign.trim();
-        const airlineCode = cleanCallsign.substring(0, 3);
         
+        // Common airline route patterns and hub destinations
         const routePatterns = {
-            // US Airlines
+            // US Major Airlines
             'AAL': 'Dallas/Miami/Phoenix Hub',
             'DAL': 'Atlanta/Detroit/Minneapolis Hub', 
             'UAL': 'Chicago/Denver/San Francisco Hub',
@@ -336,10 +254,14 @@ const FlightMap = ({ flights }) => {
             'ANZ': 'Auckland Hub'
         };
         
+        // Extract airline code (first 3 characters)
+        const airlineCode = cleanCallsign.substring(0, 3);
+        
         if (routePatterns[airlineCode]) {
             return routePatterns[airlineCode];
         }
         
+        // Fallback: use origin country if no pattern matched
         if (origin_country && origin_country !== 'Unknown') {
             return `${origin_country} Region`;
         }
@@ -347,13 +269,13 @@ const FlightMap = ({ flights }) => {
         return 'Unknown';
     }, []);
 
-    // Show flight details popup
+    // Show heading popup for clicked flight
     const showHeadingPopup = useCallback((flight) => {
         setSelectedFlight(flight);
         
         const destination = inferDestination(flight.callsign, flight.origin_country);
-        
-        const popupContent = `
+
+            const popupContent = `
             <div class="flight-popup">
                 <h3>${flight.callsign || 'Unknown Flight'}</h3>
                 <p><strong>ICAO24:</strong> ${flight.icao24}</p>
@@ -362,16 +284,17 @@ const FlightMap = ({ flights }) => {
                 <p><strong>Altitude:</strong> ${flight.baro_altitude ? `${Math.round(flight.baro_altitude)}m` : 'N/A'}</p>
                 <p><strong>Speed:</strong> ${flight.velocity ? `${Math.round(flight.velocity * 3.6)} km/h` : 'N/A'}</p>
                 <p class="heading-highlight"><strong>True Course:</strong> ${typeof flight.true_track === 'number' ? `${Math.round(flight.true_track)}°` : 'N/A'}</p>
-                <p><strong>Ground Speed:</strong> ${flight.velocity ? `${Math.round(flight.velocity * 1.944)} knots` : 'N/A'}</p>
+                <p><strong>Display Rotation:</strong> ${typeof flight.heading === 'number' ? `${Math.round(flight.heading)}°` : 'N/A'}</p>
+                <p><strong>Velocity:</strong> ${flight.velocity ? `${Math.round(flight.velocity)} m/s` : 'N/A'}</p>
                 <p><em>0°=North, 90°=East, 180°=South, 270°=West</em></p>
-            </div>
-        `;
-        
+                </div>
+            `;
+
         const popup = new mapboxgl.Popup({ 
             offset: 25,
             closeButton: true,
             closeOnClick: true,
-            maxWidth: '280px'
+            maxWidth: '250px'
         })
         .setLngLat([flight.longitude, flight.latitude])
         .setHTML(popupContent)
@@ -382,47 +305,69 @@ const FlightMap = ({ flights }) => {
         });
     }, [inferDestination]);
 
-    // Memoize valid flights to avoid recalculating
-    const validFlights = useMemo(() => {
-        return flights.filter(flight => 
-            flight && 
-            flight.icao24 && 
-            typeof flight.latitude === 'number' && 
-            typeof flight.longitude === 'number' &&
-            !isNaN(flight.latitude) && 
-            !isNaN(flight.longitude) &&
-            Math.abs(flight.latitude) <= 90 &&
-            Math.abs(flight.longitude) <= 180 &&
-            typeof flight.heading === 'number'
-        );
-    }, [flights]);
-
-    // Update flight data from server (every 15 seconds)
+    // Update flight data with optimized batching and smooth interpolation
     useEffect(() => {
-        if (!isMapLoaded || !validFlights.length) return;
+        if (!isMapLoaded || !map.current) return;
 
-        const currentTime = Date.now();
-        
-        // Update flight states with new data
-        const currentFlightIds = new Set(validFlights.map(f => f.icao24));
-        
-        // Remove stale flights
-        flightStates.current.forEach((state, flightId) => {
-            if (!currentFlightIds.has(flightId)) {
-                flightStates.current.delete(flightId);
-            }
-        });
-
-        // Update existing flights and add new ones
-        validFlights.forEach(flight => {
-            FlightAnimator.updateFlightState(flight, currentTime);
-        });
-
-        // Debug logging
-        if (Math.random() < 0.01) {
-            console.log(`Updated ${validFlights.length} flights for smooth interpolation`);
+        // Cancel any pending updates
+        if (updateFrame.current) {
+            cancelAnimationFrame(updateFrame.current);
         }
 
+        // Batch updates using requestAnimationFrame for smooth performance
+        updateFrame.current = requestAnimationFrame(() => {
+            // Convert flights to GeoJSON features with heading data
+            const features = validFlights.map(flight => {
+                // Use true_track for actual course over ground (movement direction)
+                const actualHeading = typeof flight.true_track === 'number' ? flight.true_track : 
+                                    (typeof flight.heading === 'number' ? flight.heading : 0);
+                
+                // Airplane emoji ✈️ naturally points northeast (45°)
+                // For true course 112° (ESE), we need airplane to point ESE
+                // If emoji points northeast (45°), we subtract 45° to align with north (0°)
+                // Then the true course rotation will be applied correctly
+                const adjustedHeading = actualHeading - 45;
+                
+                // Debug logging for orientation verification
+                if (Math.random() < 0.005) { // Log 0.5% of flights
+                    console.log(`Flight ${flight.icao24}: true_track=${flight.true_track}° → display=${adjustedHeading}°`);
+                }
+                
+                return {
+                    type: 'Feature',
+                    properties: {
+                        icao24: flight.icao24,
+                        callsign: flight.callsign || 'Unknown',
+                        origin_country: flight.origin_country || 'Unknown',
+                        baro_altitude: flight.baro_altitude,
+                        velocity: flight.velocity,
+                        true_track: flight.true_track, // Keep original for popup
+                        heading: adjustedHeading, // Adjusted heading for display
+                        // Add timestamp for interpolation
+                        timestamp: Date.now()
+                    },
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [flight.longitude, flight.latitude]
+                    }
+                };
+            });
+
+            // Update the source data with smooth transitions
+            if (map.current.getSource('flights')) {
+                // Enable smooth position interpolation
+                map.current.getSource('flights').setData({
+                    type: 'FeatureCollection',
+                    features: features
+                });
+                
+                // Add smooth transition properties for position interpolation
+                map.current.setPaintProperty('flight-markers', 'text-translate-transition', {
+                    duration: 15000, // Match update interval for smooth movement
+                    delay: 0
+                });
+            }
+        });
     }, [validFlights, isMapLoaded]);
 
     return (
