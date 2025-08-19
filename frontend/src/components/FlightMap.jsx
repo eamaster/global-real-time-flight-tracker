@@ -57,23 +57,22 @@ const FlightMap = ({ flights }) => {
         };
     }, []);
 
-    // Simple and reliable rotation calculation
+    // Airplane rotation calculation
     const calculateRotation = useCallback((trueTrack) => {
         if (typeof trueTrack !== 'number' || isNaN(trueTrack)) {
-            console.log('Invalid true_track:', trueTrack);
-            return 0;
+            return 0; // Default rotation for flights without heading data
         }
         
         // Normalize the angle to be between 0 and 360 degrees
         let angle = trueTrack % 360;
         if (angle < 0) angle += 360;
         
-        console.log('Calculating rotation for true_track:', trueTrack, 'normalized:', angle);
-        
-        // The airplane emoji ✈️ naturally points up-right (northeast, ~45°)
-        // true_track: 0° = North, 90° = East, 180° = South, 270° = West
-        // We need to adjust for the emoji's natural orientation
-        return angle - 45;
+        // The airplane emoji ✈️ naturally points northeast (45 degrees)
+        // true_track from OpenSky: 0° = North, 90° = East, 180° = South, 270° = West
+        // To align properly: if true_track is 0° (North), we want emoji to point up
+        // If true_track is 90° (East), we want emoji to point right
+        // Since emoji naturally points at 45°, we need to rotate it by (true_track - 45°)
+        return angle;
     }, []);
 
     // Simple popup creation
@@ -102,8 +101,6 @@ const FlightMap = ({ flights }) => {
     useEffect(() => {
         if (!isMapLoaded || !flights.length) return;
 
-        console.log('Processing flights:', flights.length);
-
         // Filter valid flights
         const validFlights = flights.filter(flight => 
             flight && 
@@ -115,8 +112,6 @@ const FlightMap = ({ flights }) => {
             Math.abs(flight.latitude) <= 90 &&
             Math.abs(flight.longitude) <= 180
         );
-
-        console.log('Valid flights:', validFlights.length);
 
         const currentMarkerIds = Object.keys(markers.current);
         const newFlightIds = new Set(validFlights.map(f => f.icao24));
@@ -145,13 +140,13 @@ const FlightMap = ({ flights }) => {
                 const markerElement = marker.getElement();
                 
                 if (markerElement) {
+                    // Force the rotation to be applied
                     markerElement.style.transform = `rotate(${rotationAngle}deg)`;
+                    markerElement.style.transformOrigin = 'center center';
                     markerElement.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
                     markerElement.title = typeof true_track === 'number' ? 
-                        `Heading: ${Math.round(true_track)}°` : 
+                        `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
                         'No heading data';
-                    
-                    console.log(`Updated marker ${icao24} with rotation: ${rotationAngle}°`);
                 }
             } else {
                 // Create new marker
@@ -162,12 +157,11 @@ const FlightMap = ({ flights }) => {
                 // Set rotation immediately
                 const rotationAngle = calculateRotation(true_track);
                 el.style.transform = `rotate(${rotationAngle}deg)`;
+                el.style.transformOrigin = 'center center';
                 el.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
                 el.title = typeof true_track === 'number' ? 
-                    `Heading: ${Math.round(true_track)}°` : 
+                    `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
                     'No heading data';
-
-                console.log(`Created marker ${icao24} with rotation: ${rotationAngle}°, true_track: ${true_track}`);
 
                 // Create popup
                 const popup = createPopup(flight);
