@@ -9,8 +9,11 @@ const App = () => {
     const [error, setError] = useState(null);
     const [lastFetch, setLastFetch] = useState(null);
     const abortControllerRef = useRef(null);
+    const [lastBounds, setLastBounds] = useState(null);
 
     const fetchFlights = useCallback(async () => {
+        // Require bounds to satisfy backend bbox requirement
+        if (!lastBounds) return;
         // Cancel any ongoing request
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -23,32 +26,9 @@ const App = () => {
             setLoading(true);
             // Use production Cloudflare Workers backend URL
             const apiUrl = import.meta.env.VITE_API_URL || 'https://global-flight-tracker-api.smah0085.workers.dev';
-            // Include current map bounds if available (reduces payload and CPU on the worker)
-            let params = '';
-            try {
-                // Listen once for the latest bounds event (emitted by FlightMap on load/move)
-                const bounds = await new Promise(resolve => {
-                    let resolved = false;
-                    const handler = (e) => {
-                        if (resolved) return;
-                        resolved = true;
-                        window.removeEventListener('map-bounds-changed', handler);
-                        resolve(e.detail);
-                    };
-                    window.addEventListener('map-bounds-changed', handler, { once: true });
-                    // Fallback resolve after 200ms if no event arrives
-                    setTimeout(() => {
-                        if (!resolved) {
-                            window.removeEventListener('map-bounds-changed', handler);
-                            resolve(null);
-                        }
-                    }, 200);
-                });
-                if (bounds) {
-                    const { lat_min, lon_min, lat_max, lon_max } = bounds;
-                    params = `?lat_min=${lat_min}&lon_min=${lon_min}&lat_max=${lat_max}&lon_max=${lon_max}`;
-                }
-            } catch (_) {}
+            // Always include current map bounds (required by backend)
+            const { lat_min, lon_min, lat_max, lon_max } = lastBounds;
+            const params = `?lat_min=${lat_min}&lon_min=${lon_min}&lat_max=${lat_max}&lon_max=${lon_max}`;
             
             const response = await axios.get(`${apiUrl}/api/flights${params}`, {
                 signal: abortControllerRef.current.signal,
@@ -84,20 +64,27 @@ const App = () => {
         } finally {
             setLoading(false);
         }
+    }, [lastBounds]);
+
+    // Subscribe to map bounds updates from FlightMap
+    useEffect(() => {
+        const handler = (e) => setLastBounds(e.detail);
+        window.addEventListener('map-bounds-changed', handler);
+        return () => window.removeEventListener('map-bounds-changed', handler);
     }, []);
 
+    // Start fetching only after we have initial bounds; refresh on bounds changes
     useEffect(() => {
+        if (!lastBounds) return;
         fetchFlights();
-        // Balanced real-time tracking with 15-second intervals to avoid worker limits
         const interval = setInterval(fetchFlights, 15000);
-
         return () => {
             clearInterval(interval);
             if (abortControllerRef.current) {
                 abortControllerRef.current.abort();
             }
         };
-    }, [fetchFlights]);
+    }, [lastBounds, fetchFlights]);
 
     return (
         <div className="App">

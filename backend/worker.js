@@ -61,20 +61,64 @@ const fetchFlightData = async (request) => {
         const lat_max = url.searchParams.get('lat_max');
         const lon_max = url.searchParams.get('lon_max');
 
-        let apiUrl = 'https://opensky-network.org/api/states/all';
-
-        // Add bounding box parameters if they exist
-        if (lat_min && lon_min && lat_max && lon_max) {
-            apiUrl += `?lamin=${lat_min}&lomin=${lon_min}&lamax=${lat_max}&lomax=${lon_max}`;
+        // Require a bounding box to avoid fetching the entire planet
+        if (!(lat_min && lon_min && lat_max && lon_max)) {
+            return new Response(
+                JSON.stringify({
+                    message: 'Bounding box required',
+                    hint: 'Pass lat_min, lon_min, lat_max, lon_max query params to reduce payload'
+                }),
+                {
+                    status: 400,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                    }
+                }
+            );
         }
+
+        // Validate and clamp bbox to a reasonable size (avoid CPU limit)
+        const minLat = Math.max(-90, Math.min(90, parseFloat(lat_min)));
+        const maxLat = Math.max(-90, Math.min(90, parseFloat(lat_max)));
+        const minLon = Math.max(-180, Math.min(180, parseFloat(lon_min)));
+        const maxLon = Math.max(-180, Math.min(180, parseFloat(lon_max)));
+
+        // Reject huge boxes (> 60 x 60 degrees)
+        if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLon) || !Number.isFinite(maxLon) ||
+            Math.abs(maxLat - minLat) > 60 || Math.abs(maxLon - minLon) > 60) {
+            return new Response(
+                JSON.stringify({ message: 'Bounding box too large. Please zoom in further.' }),
+                {
+                    status: 413,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                    }
+                }
+            );
+        }
+
+        let apiUrl = `https://opensky-network.org/api/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}`;
 
         // Make request with or without authentication
         const headers = {};
         if (accessToken) {
             headers['Authorization'] = `Bearer ${accessToken}`;
         }
-        
-        const response = await fetch(apiUrl, { headers });
+        // Add timeout and small caching to ease pressure
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort('timeout'), 10000);
+        const response = await fetch(apiUrl, {
+            headers,
+            signal: controller.signal,
+            cf: { cacheTtl: 5, cacheEverything: true }
+        });
+        clearTimeout(timeout);
 
         if (!response.ok) {
             if (response.status === 401) {
@@ -101,6 +145,19 @@ const fetchFlightData = async (request) => {
                     JSON.stringify({ message: 'Rate limit exceeded. Please try again later.' }),
                     { 
                         status: 429,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Access-Control-Allow-Origin': '*',
+                            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                        }
+                    }
+                );
+            } else if (response.status >= 500) {
+                return new Response(
+                    JSON.stringify({ message: 'Upstream service error. Please retry shortly.' }),
+                    {
+                        status: 502,
                         headers: {
                             'Content-Type': 'application/json',
                             'Access-Control-Allow-Origin': '*',
