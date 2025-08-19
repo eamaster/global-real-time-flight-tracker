@@ -45,6 +45,36 @@ const FlightMap = ({ flights }) => {
         };
     }, []);
 
+    // Function to update airplane emoji rotation based on heading
+    const updatePlaneDirection = (element, heading) => {
+        if (heading === null || heading === undefined) {
+            // Default orientation when no heading data is available
+            element.style.transform = 'rotate(-45deg)';
+            return;
+        }
+
+        // Convert heading to rotation angle
+        // The ✈️ emoji naturally points northeast (45°), so we subtract 45° to align it properly
+        // Heading 0° (North) should point up, 90° (East) should point right, etc.
+        const rotation = heading - 45;
+        
+        // Handle smooth transition across 360°/0° boundary
+        const currentTransform = element.style.transform;
+        const currentRotation = currentTransform ? parseFloat(currentTransform.match(/rotate\((-?\d+\.?\d*)deg\)/)?.[1] || 0) : 0;
+        
+        let targetRotation = rotation;
+        
+        // Calculate the shortest rotation path
+        const diff = targetRotation - currentRotation;
+        if (diff > 180) {
+            targetRotation -= 360;
+        } else if (diff < -180) {
+            targetRotation += 360;
+        }
+        
+        element.style.transform = `rotate(${targetRotation}deg)`;
+    };
+
     useEffect(() => {
         if (!isMapLoaded) return; // wait for map to be loaded
 
@@ -70,21 +100,28 @@ const FlightMap = ({ flights }) => {
                     <p><strong>Origin:</strong> ${origin_country}</p>
                     <p><strong>Altitude:</strong> ${baro_altitude ? `${baro_altitude}m` : 'N/A'}</p>
                     <p><strong>Speed:</strong> ${velocity ? `${velocity} m/s` : 'N/A'}</p>
+                    <p><strong>Heading:</strong> ${true_track ? `${Math.round(true_track)}°` : 'N/A'}</p>
                 </div>
             `;
 
             const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(popupContent);
 
             if (markers.current[icao24]) {
-                // Update existing marker position
-                markers.current[icao24].setLngLat([longitude, latitude]);
+                // Update existing marker position and rotation
+                const marker = markers.current[icao24];
+                marker.setLngLat([longitude, latitude]);
+                
+                // Update the rotation of the existing marker element
+                const markerElement = marker.getElement();
+                updatePlaneDirection(markerElement, true_track);
             } else {
                 // Create a new marker
                 const el = document.createElement('div');
-                el.className = 'marker';
+                el.className = 'marker airplane-marker';
                 el.innerHTML = '✈️';
-                // Adjust rotation to account for the emoji's default orientation
-                el.style.transform = `rotate(${true_track ? true_track - 45 : -45}deg)`;
+                
+                // Set initial rotation
+                updatePlaneDirection(el, true_track);
 
                 const newMarker = new mapboxgl.Marker(el)
                     .setLngLat([longitude, latitude])
