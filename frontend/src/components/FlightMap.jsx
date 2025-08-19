@@ -139,12 +139,7 @@ const FlightMap = ({ flights }) => {
                 const markerElement = marker.getElement();
                 
                 if (markerElement) {
-                    // Debug: Log what we're trying to apply
-                    if (Math.random() < 0.01) { // Log only 1% of markers to avoid spam
-                        console.log(`Applying rotation: ${rotationAngle}° for flight ${icao24} with true_track ${true_track}`);
-                    }
-                    
-                    // Force the rotation to be applied with !important
+                    // Apply rotation
                     markerElement.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
                     markerElement.style.setProperty('transform-origin', 'center center', 'important');
                     markerElement.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
@@ -156,18 +151,13 @@ const FlightMap = ({ flights }) => {
                 // Create new marker
                 const el = document.createElement('div');
                 el.className = 'marker';
-                // Use a more directional symbol that clearly shows rotation
-                el.innerHTML = '▲';
+                // Use a more directional airplane symbol
+                el.innerHTML = '🛩️';
                 
                 // Set rotation immediately
                 const rotationAngle = calculateRotation(true_track);
                 
-                // Debug: Log what we're creating
-                if (Math.random() < 0.01) { // Log only 1% of markers to avoid spam
-                    console.log(`Creating marker with rotation: ${rotationAngle}° for flight ${icao24} with true_track ${true_track}`);
-                }
-                
-                // Force the rotation to be applied with !important
+                // Apply rotation
                 el.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
                 el.style.setProperty('transform-origin', 'center center', 'important');
                 el.style.opacity = typeof true_track === 'number' ? '1' : '0.6';

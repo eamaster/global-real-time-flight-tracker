@@ -74,34 +74,46 @@ body {
     /* Remove heavy animations and effects */
 }
 
-/* CSS airplane icon as fallback */
-.marker.css-airplane {
+/* CSS airplane icon that clearly shows direction */
+.marker.airplane-icon {
     background: none;
     position: relative;
+    width: 24px;
+    height: 24px;
 }
 
-.marker.css-airplane::before {
+/* Main fuselage (body) - vertical line */
+.marker.airplane-icon::before {
     content: '';
     position: absolute;
-    width: 16px;
-    height: 3px;
+    width: 2px;
+    height: 16px;
     background: #4A90E2;
-    border-radius: 2px;
-    top: 50%;
+    top: 2px;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
+    border-radius: 1px;
 }
 
-.marker.css-airplane::after {
+/* Wings - horizontal line */
+.marker.airplane-icon::after {
     content: '';
     position: absolute;
-    width: 8px;
-    height: 8px;
+    width: 14px;
+    height: 2px;
     background: #4A90E2;
-    border-radius: 50%;
-    top: 50%;
+    top: 8px;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
+    border-radius: 1px;
+}
+
+/* Nose - pointing upward */
+.marker.airplane-icon {
+    background: linear-gradient(to top, transparent 0%, transparent 45%, #4A90E2 50%, transparent 55%, transparent 100%);
+    background-size: 2px 6px;
+    background-position: center 2px;
+    background-repeat: no-repeat;
 }
 
 .marker:hover {
