@@ -103,6 +103,18 @@ const FlightMap = ({ flights }) => {
                 console.log('Failed to create airplane icon, using emoji fallback');
             }
 
+            // Dispatch initial bounds so the backend can be queried with a bounding box
+            try {
+                const b = map.current.getBounds();
+                const detail = {
+                    lat_min: b.getSouth(),
+                    lon_min: b.getWest(),
+                    lat_max: b.getNorth(),
+                    lon_max: b.getEast()
+                };
+                window.dispatchEvent(new CustomEvent('map-bounds-changed', { detail }));
+            } catch (_) {}
+
             // Add source for flight data with smooth transitions
             map.current.addSource('flights', {
                 type: 'geojson',
@@ -166,7 +178,7 @@ const FlightMap = ({ flights }) => {
             setIsMapLoaded(true);
         });
 
-        // Throttle move events for better performance
+        // Throttle move events for better performance and emit bounds for bbox querying
         let moveTimeout;
         map.current.on('move', () => {
             if (moveTimeout) clearTimeout(moveTimeout);
@@ -174,6 +186,16 @@ const FlightMap = ({ flights }) => {
             setLng(map.current.getCenter().lng.toFixed(4));
             setLat(map.current.getCenter().lat.toFixed(4));
             setZoom(map.current.getZoom().toFixed(2));
+            try {
+                const b = map.current.getBounds();
+                const detail = {
+                    lat_min: b.getSouth(),
+                    lon_min: b.getWest(),
+                    lat_max: b.getNorth(),
+                    lon_max: b.getEast()
+                };
+                window.dispatchEvent(new CustomEvent('map-bounds-changed', { detail }));
+            } catch (_) {}
             }, 100);
         });
 

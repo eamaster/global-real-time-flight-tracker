@@ -23,8 +23,34 @@ const App = () => {
             setLoading(true);
             // Use production Cloudflare Workers backend URL
             const apiUrl = import.meta.env.VITE_API_URL || 'https://global-flight-tracker-api.smah0085.workers.dev';
+            // Include current map bounds if available (reduces payload and CPU on the worker)
+            let params = '';
+            try {
+                // Listen once for the latest bounds event (emitted by FlightMap on load/move)
+                const bounds = await new Promise(resolve => {
+                    let resolved = false;
+                    const handler = (e) => {
+                        if (resolved) return;
+                        resolved = true;
+                        window.removeEventListener('map-bounds-changed', handler);
+                        resolve(e.detail);
+                    };
+                    window.addEventListener('map-bounds-changed', handler, { once: true });
+                    // Fallback resolve after 200ms if no event arrives
+                    setTimeout(() => {
+                        if (!resolved) {
+                            window.removeEventListener('map-bounds-changed', handler);
+                            resolve(null);
+                        }
+                    }, 200);
+                });
+                if (bounds) {
+                    const { lat_min, lon_min, lat_max, lon_max } = bounds;
+                    params = `?lat_min=${lat_min}&lon_min=${lon_min}&lat_max=${lat_max}&lon_max=${lon_max}`;
+                }
+            } catch (_) {}
             
-            const response = await axios.get(`${apiUrl}/api/flights`, {
+            const response = await axios.get(`${apiUrl}/api/flights${params}`, {
                 signal: abortControllerRef.current.signal,
                 timeout: 8000 // 8 second timeout
             });
