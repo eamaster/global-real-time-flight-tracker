@@ -43,6 +43,8 @@ jobs:
         npm run build
         # Copy CNAME file to dist directory
         cp public/CNAME dist/CNAME
+        # Add .nojekyll file to prevent Jekyll processing
+        touch dist/.nojekyll
       env:
         VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
         VITE_API_URL: ${{ secrets.VITE_API_URL }}

@@ -1,0 +1,39 @@
+# Jekyll configuration for GitHub Pages
+# Exclude directories and files that shouldn't be processed by Jekyll
+
+exclude:
+  - node_modules/
+  - frontend/node_modules/
+  - backend/node_modules/
+  - backend/.wrangler/
+  - frontend/dist/
+  - "*.log"
+  - package-lock.json
+  - frontend/package-lock.json
+  - backend/package-lock.json
+  - .git/
+  - .gitignore
+  - .env
+  - .env.local
+  - "*.env"
+
+# GitHub Pages settings
+plugins:
+  - jekyll-default-layout
+  - jekyll-optional-front-matter
+  - jekyll-readme-index
+  - jekyll-titles-from-headings
+  - jekyll-relative-links
+
+# Markdown settings
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+# Site settings
+title: "Global Real-Time Flight Tracker"
+description: "A web application to track flights in real-time using the OpenSky Network API"
+
+# GitHub Pages specific settings
+repository: eamaster/global-real-time-flight-tracker
