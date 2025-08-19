@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Real-Time Flight Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #1a1a1a;
+            color: white;
+        }
+        .container {
+            text-align: center;
+        }
+        .spinner {
+            border: 4px solid #333;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛩️ Global Real-Time Flight Tracker</h1>
+        <div class="spinner"></div>
+        <p>Loading flight tracker application...</p>
+        <p><small>If this doesn't redirect automatically, there may be a deployment issue.</small></p>
+    </div>
+    
+    <script>
+        // This is a temporary fix - the app should be deployed via GitHub Actions
+        // For now, we'll show a message about the deployment issue
+        setTimeout(() => {
+            document.body.innerHTML = `
+                <div class="container">
+                    <h1>🛩️ Global Real-Time Flight Tracker</h1>
+                    <p style="color: #ff6b6b;">⚠️ Deployment Issue Detected</p>
+                    <p>The flight tracker application should be deployed here, but GitHub Pages is still serving the repository files instead of the built application.</p>
+                    <p><strong>Expected:</strong> Interactive flight map with real-time airplane tracking</p>
+                    <p><strong>Current:</strong> Repository README content</p>
+                    <hr style="margin: 20px 0; border-color: #333;">
+                    <p><small>The GitHub Actions deployment completed successfully, but GitHub Pages source needs to be configured to use "GitHub Actions" instead of "Deploy from a branch".</small></p>
+                </div>
+            `;
+        }, 3000);
+    </script>
+</body>
+</html>

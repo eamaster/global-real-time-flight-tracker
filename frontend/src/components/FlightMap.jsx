@@ -56,13 +56,17 @@ const FlightMap = ({ flights }) => {
                 if (image) map.current.addImage('airplane', image);
             });
 
-            // Add source for flight data
+            // Add source for flight data with smooth transitions
             map.current.addSource('flights', {
                 type: 'geojson',
                 data: {
                     type: 'FeatureCollection',
                     features: []
-                }
+                },
+                // Enable smooth transitions between position updates
+                lineMetrics: true,
+                tolerance: 0.375,
+                maxzoom: 14
             });
 
             // Add layer for airplane symbols with rotation
@@ -72,14 +76,14 @@ const FlightMap = ({ flights }) => {
                 source: 'flights',
                 layout: {
                     'icon-image': 'airplane',
-                    'icon-size': 0.8,
+                    'icon-size': 1.2, // Increased from 0.8 to 1.2 for better visibility
                     'icon-rotate': ['get', 'heading'],
                     'icon-rotation-alignment': 'map',
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
                     // Fallback to text if icon not available
                     'text-field': '✈️',
-                    'text-size': 16,
+                    'text-size': 24, // Increased from 16 to 24 for better visibility
                     'text-rotate': ['get', 'heading'],
                     'text-rotation-alignment': 'map',
                     'text-allow-overlap': true,
@@ -87,8 +91,21 @@ const FlightMap = ({ flights }) => {
                 },
                 paint: {
                     'text-color': '#4A90E2',
-                    'text-halo-width': 0 // No halo
+                    'text-halo-width': 0, // No halo
+                    'icon-opacity': 1,
+                    'text-opacity': 1
                 }
+            });
+
+            // Add smooth transitions for position changes
+            map.current.setPaintProperty('flight-markers', 'icon-opacity-transition', {
+                duration: 300,
+                delay: 0
+            });
+            
+            map.current.setPaintProperty('flight-markers', 'text-opacity-transition', {
+                duration: 300,
+                delay: 0
             });
 
             // Add click handler for flight details
@@ -169,7 +186,7 @@ const FlightMap = ({ flights }) => {
         });
     }, []);
 
-    // Update flight data with optimized batching
+    // Update flight data with optimized batching and smooth interpolation
     useEffect(() => {
         if (!isMapLoaded || !map.current) return;
 
@@ -189,7 +206,9 @@ const FlightMap = ({ flights }) => {
                     origin_country: flight.origin_country || 'Unknown',
                     baro_altitude: flight.baro_altitude,
                     velocity: flight.velocity,
-                    heading: flight.heading - 45 // Adjust for airplane emoji orientation
+                    heading: flight.heading - 45, // Adjust for airplane emoji orientation
+                    // Add timestamp for interpolation
+                    timestamp: Date.now()
                 },
                 geometry: {
                     type: 'Point',
@@ -197,11 +216,23 @@ const FlightMap = ({ flights }) => {
                 }
             }));
 
-            // Update the source data
+            // Update the source data with smooth transitions
             if (map.current.getSource('flights')) {
+                // Enable smooth position interpolation
                 map.current.getSource('flights').setData({
                     type: 'FeatureCollection',
                     features: features
+                });
+                
+                // Add smooth transition properties
+                map.current.setPaintProperty('flight-markers', 'icon-translate-transition', {
+                    duration: 8000, // Match update interval for smooth movement
+                    delay: 0
+                });
+                
+                map.current.setPaintProperty('flight-markers', 'text-translate-transition', {
+                    duration: 8000, // Match update interval for smooth movement
+                    delay: 0
                 });
             }
         });

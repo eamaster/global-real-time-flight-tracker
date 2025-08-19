@@ -62,8 +62,8 @@ const App = () => {
 
     useEffect(() => {
         fetchFlights();
-        // Further reduced polling frequency to 20 seconds for better performance
-        const interval = setInterval(fetchFlights, 20000);
+        // Real-time tracking with 8-second intervals for responsive updates
+        const interval = setInterval(fetchFlights, 8000);
 
         return () => {
             clearInterval(interval);

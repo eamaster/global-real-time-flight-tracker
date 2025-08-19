@@ -1,5 +1,7 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Airplane pointing upward (North) -->
-  <path d="M12 2L13.5 6H19L17 8H15L12 12L9 8H7L5 6H10.5L12 2Z" fill="#4A90E2"/>
-  <path d="M12 12L14 16H16L17 18H15L12 22L9 18H7L8 16H10L12 12Z" fill="#4A90E2"/>
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Larger airplane pointing upward (North) with better visibility -->
+  <path d="M16 3L18 8H25L22 11H19L16 16L13 11H10L7 8H14L16 3Z" fill="#4A90E2" stroke="#ffffff" stroke-width="0.5"/>
+  <path d="M16 16L19 22H22L23 25H20L16 29L12 25H9L10 22H13L16 16Z" fill="#4A90E2" stroke="#ffffff" stroke-width="0.5"/>
+  <!-- Add center circle for better visibility -->
+  <circle cx="16" cy="16" r="2" fill="#ffffff" stroke="#4A90E2" stroke-width="1"/>
 </svg>
