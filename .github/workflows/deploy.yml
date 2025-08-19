@@ -45,6 +45,8 @@ jobs:
         cp public/CNAME dist/CNAME
         # Add .nojekyll file to prevent Jekyll processing
         touch dist/.nojekyll
+        # Verify files are created correctly
+        ls -la dist/
       env:
         VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
         VITE_API_URL: ${{ secrets.VITE_API_URL }}
