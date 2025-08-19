@@ -15,13 +15,12 @@
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
-    /* Add subtle glow for visibility */
-    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
+    /* NO shadows or halos - clean emoji rendering */
 }
 
 .plane:hover {
-    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.8));
-    transform: scale(1.1) rotate(var(--current-rotation, 0deg));
+    /* Clean hover effect without shadows */
+    opacity: 0.8;
 }
 
 /* SVG fallback icon for systems that don't support emoji */

@@ -101,8 +101,15 @@ const FlightMap = ({ flights }) => {
         
         // Set individual rotation based on flight heading
         const heading = flight.heading || 0;
-        el.style.transform = `rotate(${heading}deg)`;
+        // Airplane emoji ✈️ naturally points northeast (45°), so adjust for proper direction
+        const adjustedHeading = heading - 45;
+        el.style.transform = `rotate(${adjustedHeading}deg)`;
         el.style.transformOrigin = '50% 50%';
+        
+        // Debug logging for verification
+        if (Math.random() < 0.01) {
+            console.log(`Flight ${flight.icao24}: heading=${heading}° → adjusted=${adjustedHeading}°`);
+        }
         
         // Add click handler for heading popup
         el.addEventListener('click', (e) => {
@@ -157,12 +164,15 @@ const FlightMap = ({ flights }) => {
                 // Update rotation only if heading changed (performance optimization)
                 const markerElement = marker.getElement();
                 if (markerElement) {
+                    // Airplane emoji ✈️ naturally points northeast (45°), so adjust for proper direction
+                    const adjustedHeading = heading - 45;
                     const currentTransform = markerElement.style.transform;
-                    const newTransform = `rotate(${heading}deg)`;
+                    const newTransform = `rotate(${adjustedHeading}deg)`;
                     
                     // Only update transform if it changed (avoid unnecessary reflows)
                     if (currentTransform !== newTransform) {
                         markerElement.style.transform = newTransform;
+                        markerElement.style.transformOrigin = '50% 50%';
                         markerElement.title = `${flight.callsign || 'Unknown'} - Heading: ${Math.round(heading)}°`;
                     }
                 }

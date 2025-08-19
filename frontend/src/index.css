@@ -60,6 +60,20 @@ body {
     /* Allow individual plane transforms to work without interference */
 }
 
+/* Override any Mapbox marker styles that might affect rotation */
+.mapboxgl-marker .plane {
+    /* Ensure individual rotation works */
+    transform-origin: 50% 50% !important;
+}
+
+/* Remove any inherited shadows or effects */
+.mapboxgl-marker .plane {
+    text-shadow: none !important;
+    box-shadow: none !important;
+    filter: none !important;
+    outline: none !important;
+}
+
 /* Enhanced popup styling */
 .flight-popup {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
