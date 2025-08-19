@@ -56,22 +56,20 @@ body {
 }
 
 .marker {
-    font-size: 20px;
-    color: #ffffff;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    font-size: 18px;
+    color: #FFD700;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
     width: 20px;
     height: 20px;
     cursor: pointer;
-    transform-origin: center center;
+    transform-origin: center center !important;
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Minimal styling for maximum performance */
     user-select: none;
     -webkit-user-select: none;
-    /* Simple transition only for opacity */
+    /* Ensure rotation is smooth and visible */
     transition: opacity 0.1s ease-out;
-    /* Remove heavy animations and effects */
 }
 
 /* CSS airplane icon that clearly shows direction */

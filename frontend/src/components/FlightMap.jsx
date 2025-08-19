@@ -70,7 +70,12 @@ const FlightMap = ({ flights }) => {
         // Triangle ▲ naturally points up (North = 0°)
         // true_track from OpenSky: 0° = North, 90° = East, 180° = South, 270° = West
         // Since triangle already points North, we can use the angle directly
-        // This should make the rotation clearly visible
+        
+        // Debug logging for a few flights
+        if (Math.random() < 0.01) {
+            console.log(`Flight heading: ${trueTrack}° → Rotation: ${angle}°`);
+        }
+        
         return angle;
     }, []);
 
@@ -151,8 +156,8 @@ const FlightMap = ({ flights }) => {
                 // Create new marker
                 const el = document.createElement('div');
                 el.className = 'marker';
-                // Use a more directional airplane symbol
-                el.innerHTML = '🛩️';
+                // Use a simple directional arrow that clearly shows rotation
+                el.innerHTML = '▲';
                 
                 // Set rotation immediately
                 const rotationAngle = calculateRotation(true_track);
