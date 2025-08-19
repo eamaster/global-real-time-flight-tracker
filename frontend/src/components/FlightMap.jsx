@@ -47,14 +47,61 @@ const FlightMap = ({ flights }) => {
         });
 
         map.current.on('load', () => {
-            // Add airplane icon to the map style
-            map.current.loadImage('/global-real-time-flight-tracker/airplane-icon.svg', (error, image) => {
-                if (error) {
-                    // If image fails, we'll use text-based approach
-                    console.log('Airplane icon not found, using emoji approach');
-                }
-                if (image) map.current.addImage('airplane', image);
-            });
+            // Create airplane icon programmatically to ensure it loads
+            const createAirplaneIcon = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = 32;
+                canvas.height = 32;
+                
+                // Draw airplane pointing up (North)
+                ctx.fillStyle = '#4A90E2';
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                
+                // Main body
+                ctx.beginPath();
+                ctx.moveTo(16, 4);
+                ctx.lineTo(18, 10);
+                ctx.lineTo(26, 10);
+                ctx.lineTo(23, 13);
+                ctx.lineTo(19, 13);
+                ctx.lineTo(16, 18);
+                ctx.lineTo(13, 13);
+                ctx.lineTo(9, 13);
+                ctx.lineTo(6, 10);
+                ctx.lineTo(14, 10);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Tail
+                ctx.beginPath();
+                ctx.moveTo(16, 18);
+                ctx.lineTo(19, 24);
+                ctx.lineTo(22, 24);
+                ctx.lineTo(23, 27);
+                ctx.lineTo(20, 27);
+                ctx.lineTo(16, 28);
+                ctx.lineTo(12, 27);
+                ctx.lineTo(9, 27);
+                ctx.lineTo(10, 24);
+                ctx.lineTo(13, 24);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                return canvas;
+            };
+            
+            // Add the airplane icon
+            try {
+                const airplaneCanvas = createAirplaneIcon();
+                map.current.addImage('airplane', airplaneCanvas);
+                console.log('Airplane icon created successfully');
+            } catch (error) {
+                console.log('Failed to create airplane icon, using emoji fallback');
+            }
 
             // Add source for flight data with smooth transitions
             map.current.addSource('flights', {
@@ -75,34 +122,23 @@ const FlightMap = ({ flights }) => {
                 type: 'symbol',
                 source: 'flights',
                 layout: {
-                    'icon-image': 'airplane',
-                    'icon-size': 1.2, // Increased from 0.8 to 1.2 for better visibility
-                    'icon-rotate': ['get', 'heading'],
-                    'icon-rotation-alignment': 'map',
-                    'icon-allow-overlap': true,
-                    'icon-ignore-placement': true,
-                    // Fallback to text if icon not available
+                    // Use emoji text for all markers (reliable cross-platform)
                     'text-field': '✈️',
-                    'text-size': 24, // Increased from 16 to 24 for better visibility
+                    'text-size': 28, // Even larger emoji for better visibility
                     'text-rotate': ['get', 'heading'],
                     'text-rotation-alignment': 'map',
                     'text-allow-overlap': true,
-                    'text-ignore-placement': true
+                    'text-ignore-placement': true,
+                    'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular']
                 },
                 paint: {
                     'text-color': '#4A90E2',
                     'text-halo-width': 0, // No halo
-                    'icon-opacity': 1,
                     'text-opacity': 1
                 }
             });
 
             // Add smooth transitions for position changes
-            map.current.setPaintProperty('flight-markers', 'icon-opacity-transition', {
-                duration: 300,
-                delay: 0
-            });
-            
             map.current.setPaintProperty('flight-markers', 'text-opacity-transition', {
                 duration: 300,
                 delay: 0
@@ -206,7 +242,7 @@ const FlightMap = ({ flights }) => {
                     origin_country: flight.origin_country || 'Unknown',
                     baro_altitude: flight.baro_altitude,
                     velocity: flight.velocity,
-                    heading: flight.heading - 45, // Adjust for airplane emoji orientation
+                    heading: flight.heading, // Use direct heading - let Mapbox handle rotation
                     // Add timestamp for interpolation
                     timestamp: Date.now()
                 },
@@ -224,12 +260,7 @@ const FlightMap = ({ flights }) => {
                     features: features
                 });
                 
-                // Add smooth transition properties
-                map.current.setPaintProperty('flight-markers', 'icon-translate-transition', {
-                    duration: 8000, // Match update interval for smooth movement
-                    delay: 0
-                });
-                
+                // Add smooth transition properties for position interpolation
                 map.current.setPaintProperty('flight-markers', 'text-translate-transition', {
                     duration: 8000, // Match update interval for smooth movement
                     delay: 0
