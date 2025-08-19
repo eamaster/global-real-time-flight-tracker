@@ -242,10 +242,11 @@ const FlightMap = ({ flights }) => {
                 const actualHeading = typeof flight.true_track === 'number' ? flight.true_track : 
                                     (typeof flight.heading === 'number' ? flight.heading : 0);
                 
-                // Airplane emoji ✈️ naturally points south (180°), so adjust accordingly
-                // For true course 109° (ESE), we need airplane to point ESE
-                // If emoji points south (180°), we need to subtract 180° to align with north (0°)
-                const adjustedHeading = actualHeading - 180;
+                // Airplane emoji ✈️ naturally points northeast (45°)
+                // For true course 112° (ESE), we need airplane to point ESE
+                // If emoji points northeast (45°), we subtract 45° to align with north (0°)
+                // Then the true course rotation will be applied correctly
+                const adjustedHeading = actualHeading - 45;
                 
                 // Debug logging for orientation verification
                 if (Math.random() < 0.005) { // Log 0.5% of flights
