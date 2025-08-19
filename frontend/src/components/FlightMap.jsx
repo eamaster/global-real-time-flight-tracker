@@ -45,34 +45,28 @@ const FlightMap = ({ flights }) => {
         };
     }, []);
 
-    // Function to update airplane emoji rotation based on heading
-    const updatePlaneDirection = (element, heading) => {
-        if (heading === null || heading === undefined) {
-            // Default orientation when no heading data is available
-            element.style.transform = 'rotate(-45deg)';
-            return;
-        }
+    // Function to calculate rotation angle for airplane emoji
+    const calculateRotation = (trueTrack) => {
+        if (!trueTrack || isNaN(trueTrack)) return 0;
+        
+        // Normalize the angle to be between 0 and 360 degrees
+        let normalizedAngle = trueTrack % 360;
+        if (normalizedAngle < 0) normalizedAngle += 360;
+        
+        // The airplane emoji ✈️ points upward by default
+        // We need to rotate it so it points in the direction of travel
+        // true_track is in degrees where 0° is North, 90° is East, etc.
+        // Since the emoji points up (North) by default, we just need to rotate by true_track
+        return normalizedAngle;
+    };
 
-        // Convert heading to rotation angle
-        // The ✈️ emoji naturally points northeast (45°), so we subtract 45° to align it properly
-        // Heading 0° (North) should point up, 90° (East) should point right, etc.
-        const rotation = heading - 45;
-        
-        // Handle smooth transition across 360°/0° boundary
-        const currentTransform = element.style.transform;
-        const currentRotation = currentTransform ? parseFloat(currentTransform.match(/rotate\((-?\d+\.?\d*)deg\)/)?.[1] || 0) : 0;
-        
-        let targetRotation = rotation;
-        
-        // Calculate the shortest rotation path
-        const diff = targetRotation - currentRotation;
-        if (diff > 180) {
-            targetRotation -= 360;
-        } else if (diff < -180) {
-            targetRotation += 360;
+    // Function to update marker rotation smoothly
+    const updateMarkerRotation = (markerElement, rotationAngle) => {
+        if (markerElement) {
+            // Set CSS custom property for rotation
+            markerElement.style.setProperty('--rotation', `${rotationAngle}deg`);
+            markerElement.style.transform = `rotate(${rotationAngle}deg)`;
         }
-        
-        element.style.transform = `rotate(${targetRotation}deg)`;
     };
 
     useEffect(() => {
@@ -100,7 +94,7 @@ const FlightMap = ({ flights }) => {
                     <p><strong>Origin:</strong> ${origin_country}</p>
                     <p><strong>Altitude:</strong> ${baro_altitude ? `${baro_altitude}m` : 'N/A'}</p>
                     <p><strong>Speed:</strong> ${velocity ? `${velocity} m/s` : 'N/A'}</p>
-                    <p><strong>Heading:</strong> ${true_track ? `${Math.round(true_track)}°` : 'N/A'}</p>
+                    <p><strong>Heading:</strong> ${true_track ? `${true_track.toFixed(1)}°` : 'N/A'}</p>
                 </div>
             `;
 
@@ -111,17 +105,38 @@ const FlightMap = ({ flights }) => {
                 const marker = markers.current[icao24];
                 marker.setLngLat([longitude, latitude]);
                 
-                // Update the rotation of the existing marker element
+                // Update rotation smoothly
+                const rotationAngle = calculateRotation(true_track);
                 const markerElement = marker.getElement();
-                updatePlaneDirection(markerElement, true_track);
+                updateMarkerRotation(markerElement, rotationAngle);
+                
+                // Add visual indicator for flights without heading data
+                if (markerElement) {
+                    if (!true_track || isNaN(true_track)) {
+                        markerElement.style.opacity = '0.6';
+                        markerElement.title = 'No heading data available';
+                    } else {
+                        markerElement.style.opacity = '1';
+                        markerElement.title = `Heading: ${true_track.toFixed(1)}°`;
+                    }
+                }
             } else {
                 // Create a new marker
                 const el = document.createElement('div');
-                el.className = 'marker airplane-marker';
+                el.className = 'marker';
                 el.innerHTML = '✈️';
                 
                 // Set initial rotation
-                updatePlaneDirection(el, true_track);
+                const rotationAngle = calculateRotation(true_track);
+                updateMarkerRotation(el, rotationAngle);
+                
+                // Add visual indicator for flights without heading data
+                if (!true_track || isNaN(true_track)) {
+                    el.style.opacity = '0.6';
+                    el.title = 'No heading data available';
+                } else {
+                    el.title = `Heading: ${true_track.toFixed(1)}°`;
+                }
 
                 const newMarker = new mapboxgl.Marker(el)
                     .setLngLat([longitude, latitude])
