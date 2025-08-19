@@ -74,8 +74,39 @@ body {
     /* Remove heavy animations and effects */
 }
 
+/* CSS airplane icon as fallback */
+.marker.css-airplane {
+    background: none;
+    position: relative;
+}
+
+.marker.css-airplane::before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 3px;
+    background: #4A90E2;
+    border-radius: 2px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.marker.css-airplane::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: #4A90E2;
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
 .marker:hover {
     opacity: 0.8 !important;
+    /* Ensure hover doesn't override transform */
 }
 
 /* Enhanced popup styling */

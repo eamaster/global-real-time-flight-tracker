@@ -67,11 +67,10 @@ const FlightMap = ({ flights }) => {
         let angle = trueTrack % 360;
         if (angle < 0) angle += 360;
         
-        // The airplane emoji ✈️ naturally points northeast (45 degrees)
+        // Triangle ▲ naturally points up (North = 0°)
         // true_track from OpenSky: 0° = North, 90° = East, 180° = South, 270° = West
-        // To align properly: if true_track is 0° (North), we want emoji to point up
-        // If true_track is 90° (East), we want emoji to point right
-        // Since emoji naturally points at 45°, we need to rotate it by (true_track - 45°)
+        // Since triangle already points North, we can use the angle directly
+        // This should make the rotation clearly visible
         return angle;
     }, []);
 
@@ -140,9 +139,14 @@ const FlightMap = ({ flights }) => {
                 const markerElement = marker.getElement();
                 
                 if (markerElement) {
-                    // Force the rotation to be applied
-                    markerElement.style.transform = `rotate(${rotationAngle}deg)`;
-                    markerElement.style.transformOrigin = 'center center';
+                    // Debug: Log what we're trying to apply
+                    if (Math.random() < 0.01) { // Log only 1% of markers to avoid spam
+                        console.log(`Applying rotation: ${rotationAngle}° for flight ${icao24} with true_track ${true_track}`);
+                    }
+                    
+                    // Force the rotation to be applied with !important
+                    markerElement.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
+                    markerElement.style.setProperty('transform-origin', 'center center', 'important');
                     markerElement.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
                     markerElement.title = typeof true_track === 'number' ? 
                         `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
@@ -152,12 +156,20 @@ const FlightMap = ({ flights }) => {
                 // Create new marker
                 const el = document.createElement('div');
                 el.className = 'marker';
-                el.innerHTML = '✈️';
+                // Use a more directional symbol that clearly shows rotation
+                el.innerHTML = '▲';
                 
                 // Set rotation immediately
                 const rotationAngle = calculateRotation(true_track);
-                el.style.transform = `rotate(${rotationAngle}deg)`;
-                el.style.transformOrigin = 'center center';
+                
+                // Debug: Log what we're creating
+                if (Math.random() < 0.01) { // Log only 1% of markers to avoid spam
+                    console.log(`Creating marker with rotation: ${rotationAngle}° for flight ${icao24} with true_track ${true_track}`);
+                }
+                
+                // Force the rotation to be applied with !important
+                el.style.setProperty('transform', `rotate(${rotationAngle}deg)`, 'important');
+                el.style.setProperty('transform-origin', 'center center', 'important');
                 el.style.opacity = typeof true_track === 'number' ? '1' : '0.6';
                 el.title = typeof true_track === 'number' ? 
                     `Heading: ${Math.round(true_track)}° (Rotated: ${Math.round(rotationAngle)}°)` : 
