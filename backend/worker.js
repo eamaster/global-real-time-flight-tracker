@@ -11,8 +11,8 @@ const getOpenSkyToken = async () => {
         return accessToken;
     }
 
-    const clientId = OPENSKY_CLIENT_ID || 'eamaster-api-client';
-    const clientSecret = OPENSKY_CLIENT_SECRET || '09VJfhtZ1ObHTlXkpQ6WOm7Ln4OKtVXZ';
+    const clientId = OPENSKY_CLIENT_ID || 'smah0085-api-client';
+    const clientSecret = OPENSKY_CLIENT_SECRET || 'Dlquai3Apg9q4PZKsqBQooW0R1IYtNys';
 
     if (!clientId || !clientSecret) {
         console.log('No OpenSky credentials configured, using public API (rate limited)');
