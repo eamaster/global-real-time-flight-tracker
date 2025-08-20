@@ -167,11 +167,15 @@ const FlightMap = ({ flights }) => {
                 <h3>${flight.callsign || 'Unknown Flight'}</h3>
                 <p><strong>ICAO24:</strong> ${flight.icao24}</p>
                 <p><strong>Origin:</strong> ${flight.origin_country || 'Unknown'}</p>
-                <p><strong>Altitude:</strong> ${flight.baro_altitude ? `${Math.round(flight.baro_altitude)}m` : 'N/A'}</p>
-                <p><strong>Speed:</strong> ${flight.velocity ? `${Math.round(flight.velocity * 3.6)} km/h` : 'N/A'}</p>
+                <p><strong>Aircraft Type:</strong> ${flight.aircraft_type || 'Unknown'}</p>
+                <p><strong>Altitude:</strong> ${flight.altitude_ft ? `${flight.altitude_ft} ft` : (flight.baro_altitude ? `${Math.round(flight.baro_altitude)}m` : 'N/A')}</p>
+                <p><strong>Speed:</strong> ${flight.speed_mph ? `${flight.speed_mph} mph` : (flight.velocity ? `${Math.round(flight.velocity * 2.23694)} mph` : 'N/A')}</p>
+                <p><strong>Speed (Knots):</strong> ${flight.speed_kts ? `${flight.speed_kts} kts` : (flight.velocity ? `${Math.round(flight.velocity * 1.94384)} kts` : 'N/A')}</p>
                 <p class="heading-highlight"><strong>True Course:</strong> ${typeof flight.true_track === 'number' ? `${Math.round(flight.true_track)}°` : 'N/A'}</p>
                 <p><strong>Display Rotation:</strong> ${typeof flight.heading === 'number' ? `${Math.round(flight.heading)}°` : 'N/A'}</p>
-                <p><strong>Velocity:</strong> ${flight.velocity ? `${Math.round(flight.velocity)} m/s` : 'N/A'}</p>
+                <p><strong>Vertical Rate:</strong> ${flight.vertical_rate ? `${Math.round(flight.vertical_rate)} m/s` : 'N/A'}</p>
+                <p><strong>On Ground:</strong> ${flight.on_ground ? 'Yes' : 'No'}</p>
+                <p><strong>Position Source:</strong> ${getPositionSource(flight.position_source)}</p>
                 <p><em>0°=North, 90°=East, 180°=South, 270°=West</em></p>
                 </div>
             `;
@@ -180,7 +184,7 @@ const FlightMap = ({ flights }) => {
             offset: 25,
             closeButton: true,
             closeOnClick: true,
-            maxWidth: '250px'
+            maxWidth: '300px'
         })
         .setLngLat([flight.longitude, flight.latitude])
         .setHTML(popupContent)
@@ -190,6 +194,17 @@ const FlightMap = ({ flights }) => {
             setSelectedFlight(null);
         });
     }, []);
+
+    // Helper function to get position source description
+    const getPositionSource = (source) => {
+        const sources = {
+            0: 'ADS-B',
+            1: 'ASTERIX',
+            2: 'MLAT',
+            3: 'FLARM'
+        };
+        return sources[source] || 'Unknown';
+    };
 
     // Update flight data with optimized batching and smooth interpolation
     useEffect(() => {
