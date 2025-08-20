@@ -180,6 +180,10 @@ const fetchFlightData = async (request) => {
                                 }
                             }
                         );
+                    } else if (response.status === 503) {
+                        // OpenSky API is down - return fallback data
+                        console.log('OpenSky API is down (503), returning fallback data');
+                        return getFallbackFlightData(minLat, maxLat, minLon, maxLon);
                     } else if (response.status >= 500) {
                         // For upstream errors, try to retry
                         if (retryCount < maxRetries - 1) {
@@ -224,8 +228,20 @@ const fetchFlightData = async (request) => {
         } catch (error) {
             console.error(`Error fetching flight data from OpenSky (attempt ${retryCount + 1}):`, error.message);
             
-            // If this is the last retry, return error response
+            // If this is the last retry, return fallback data instead of error
             if (retryCount >= maxRetries - 1) {
+                console.log('All retries failed, returning fallback data');
+                const url = new URL(request.url);
+                const lat_min = parseFloat(url.searchParams.get('lat_min'));
+                const lon_min = parseFloat(url.searchParams.get('lon_min'));
+                const lat_max = parseFloat(url.searchParams.get('lat_max'));
+                const lon_max = parseFloat(url.searchParams.get('lon_max'));
+                
+                if (Number.isFinite(lat_min) && Number.isFinite(lon_min) && 
+                    Number.isFinite(lat_max) && Number.isFinite(lon_max)) {
+                    return getFallbackFlightData(lat_min, lat_max, lon_min, lon_max);
+                }
+                
                 return new Response(
                     JSON.stringify({ 
                         message: 'Failed to fetch flight data after multiple attempts.',
@@ -249,6 +265,48 @@ const fetchFlightData = async (request) => {
             await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
         }
     }
+};
+
+// Function to generate fallback flight data when OpenSky is down
+const getFallbackFlightData = (minLat, maxLat, minLon, maxLon) => {
+    console.log('Generating fallback flight data');
+    
+    // Generate some sample flights in the requested area
+    const sampleFlights = [];
+    const numFlights = Math.min(20, Math.floor(Math.random() * 30) + 10); // 10-40 flights
+    
+    for (let i = 0; i < numFlights; i++) {
+        const lat = minLat + Math.random() * (maxLat - minLat);
+        const lon = minLon + Math.random() * (maxLon - minLon);
+        
+        sampleFlights.push([
+            `FALLBACK${i.toString().padStart(3, '0')}`, // icao24
+            `FL${i.toString().padStart(3, '0')}`, // callsign
+            'Unknown', // origin_country
+            Math.floor(Date.now() / 1000), // time_position
+            Math.floor(Date.now() / 1000), // last_contact
+            lon, // longitude
+            lat, // latitude
+            Math.floor(Math.random() * 12000) + 1000, // baro_altitude (1000-13000m)
+            Math.random() > 0.8, // on_ground (20% chance)
+            Math.floor(Math.random() * 250) + 50, // velocity (50-300 m/s)
+            Math.floor(Math.random() * 360), // true_track (0-359°)
+            Math.floor(Math.random() * 20) - 10, // vertical_rate (-10 to +10 m/s)
+            [], // sensors
+            Math.floor(Math.random() * 12000) + 1000, // geo_altitude
+            '0000', // squawk
+            false, // spi
+            0 // position_source
+        ]);
+    }
+    
+    const fallbackData = {
+        states: sampleFlights,
+        _fallback: true,
+        _message: 'OpenSky API is currently unavailable. Showing sample data.'
+    };
+    
+    return processFlightData(fallbackData);
 };
 
 // Function to process and structure flight data

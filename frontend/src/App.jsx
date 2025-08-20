@@ -72,6 +72,11 @@ const App = () => {
                 setError(null);
                 setRetryCount(0);
                 setLastFetch(new Date().toLocaleTimeString());
+                
+                // Check if this is fallback data
+                if (response.data._fallback) {
+                    setError(`⚠️ ${response.data._message} This is sample data while OpenSky API is unavailable.`);
+                }
             }
         } catch (err) {
             if (err.name !== 'CanceledError') {
