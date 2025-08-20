@@ -4,33 +4,185 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-    margin: 10px 0;
-    padding: 15px;
-    background-color: rgba(255, 0, 0, 0.1);
-    border: 1px solid rgba(255, 0, 0, 0.3);
-    border-radius: 8px;
-    max-width: 500px;
-    margin-left: auto;
-    margin-right: auto;
+    gap: 15px;
+    margin: 15px auto;
+    padding: 20px;
+    background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+    border: 2px solid #ff4757;
+    border-radius: 12px;
+    max-width: 600px;
+    box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.error-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #ff6b6b, #ffa502, #ff6b6b);
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.error-message {
+    color: white;
+    font-size: 16px;
+    font-weight: 500;
+    text-align: center;
+    margin: 0;
+    line-height: 1.5;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .retry-button {
-    background-color: #4A90E2;
+    background: linear-gradient(135deg, #4A90E2, #357ABD);
     color: white;
     border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
+    padding: 12px 24px;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 14px;
-    transition: background-color 0.2s;
+    font-size: 16px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4);
+    min-width: 120px;
 }
 
 .retry-button:hover:not(:disabled) {
-    background-color: #357ABD;
+    background: linear-gradient(135deg, #357ABD, #2c5aa0);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6);
+}
+
+.retry-button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 10px rgba(74, 144, 226, 0.4);
 }
 
 .retry-button:disabled {
-    background-color: #ccc;
+    background: #ccc;
     cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Fallback data specific styling */
+.error-container.fallback-data {
+    background: linear-gradient(135deg, #ffa502, #ff9500);
+    border-color: #ff9500;
+    box-shadow: 0 4px 15px rgba(255, 149, 0, 0.3);
+}
+
+.error-container.fallback-data::before {
+    background: linear-gradient(90deg, #ffa502, #ff6b6b, #ffa502);
+}
+
+/* Loading and retry states */
+.loading-message {
+    color: #4A90E2;
+    font-size: 16px;
+    font-weight: 500;
+    text-align: center;
+    margin: 15px 0;
+    padding: 15px;
+    background: rgba(74, 144, 226, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(74, 144, 226, 0.3);
+}
+
+/* Smooth transitions for all interactive elements */
+.error-container,
+.retry-button,
+.loading-message {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* App header improvements */
+.App-header {
+    background: linear-gradient(135deg, #2c3e50, #34495e);
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    position: relative;
+    z-index: 10;
+}
+
+.App-header h1 {
+    margin: 0 0 10px 0;
+    font-size: 2.5rem;
+    font-weight: 700;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.App-header small {
+    display: block;
+    font-size: 14px;
+    opacity: 0.9;
+    font-weight: 500;
+}
+
+/* Main content improvements */
+.main-content {
+    padding: 20px;
+    max-width: 100%;
+    overflow-x: hidden;
+    min-height: calc(100vh - 120px);
+}
+
+/* Map container improvements */
+.flight-map-wrapper {
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    margin-top: 20px;
+}
+
+.map-container {
+    width: 100%;
+    height: 70vh;
+    min-height: 500px;
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+    .App-header h1 {
+        font-size: 2rem;
+    }
+    
+    .App-header small {
+        font-size: 12px;
+    }
+    
+    .main-content {
+        padding: 15px;
+    }
+    
+    .map-container {
+        height: 60vh;
+        min-height: 400px;
+    }
+}
+
+@media (max-width: 480px) {
+    .App-header h1 {
+        font-size: 1.8rem;
+    }
+    
+    .error-container {
+        margin: 10px 5px;
+        padding: 15px;
+    }
+    
+    .retry-button {
+        width: 100%;
+        max-width: 200px;
+    }
 }

@@ -75,7 +75,7 @@ const App = () => {
                 
                 // Check if this is fallback data
                 if (response.data._fallback) {
-                    setError(`⚠️ ${response.data._message} This is sample data while OpenSky API is unavailable.`);
+                    setError(`⚠️ OpenSky API is currently unavailable. Showing sample data for demonstration purposes.`);
                 }
             }
         } catch (err) {
@@ -198,7 +198,7 @@ const App = () => {
                     <p className="error-message">Area too large. Please zoom in to load flights.</p>
                 )}
                 {error && (
-                    <div className="error-container">
+                    <div className={`error-container ${error.includes('sample data') ? 'fallback-data' : ''}`}>
                         <p className="error-message">{error}</p>
                         {retryCount < 3 && !tooWide && (
                             <button 
