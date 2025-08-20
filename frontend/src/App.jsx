@@ -81,11 +81,11 @@ const App = () => {
                     const source = response.data._source || 'unknown';
                     const message = response.data._message || 'API unavailable. Showing fallback data.';
                     
-                    if (source === 'enhanced_sample') {
-                        setError(`⚠️ Using sample data (OpenSky unavailable)`);
-                    } else {
-                        setError(`⚠️ ${message}`);
-                    }
+                                    if (source === 'enhanced_sample') {
+                    setError(`Using sample data (OpenSky unavailable)`);
+                } else {
+                    setError(message);
+                }
                 } else {
                     // Real data fetched successfully - animate out the error banner
                     const banner = document.querySelector('.error-banner');

@@ -3,6 +3,7 @@
     position: fixed;
     top: 90px;
     left: 50%;
+    right: auto;
     transform: translateX(-50%);
     max-width: 600px;
     width: calc(100% - 32px);
@@ -137,23 +138,23 @@
 
 @keyframes slideInDown {
     from {
-        transform: translateY(-100%);
         opacity: 0;
+        transform: translateX(-50%) translateY(-20px) scale(0.95);
     }
     to {
-        transform: translateY(0);
         opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1);
     }
 }
 
 @keyframes slideOutUp {
     from {
-        transform: translateY(0);
         opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1);
     }
     to {
-        transform: translateY(-100%);
         opacity: 0;
+        transform: translateX(-50%) translateY(-20px) scale(0.95);
     }
 }
 
@@ -165,6 +166,7 @@
 @media (max-width: 768px) {
     .error-banner {
         left: 50%;
+        right: auto;
         transform: translateX(-50%);
         width: calc(100% - 16px);
         max-width: 500px;
@@ -202,6 +204,7 @@
 @media (max-width: 480px) {
     .error-banner {
         left: 50%;
+        right: auto;
         transform: translateX(-50%);
         width: calc(100% - 8px);
         max-width: 400px;
