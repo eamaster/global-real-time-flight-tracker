@@ -75,7 +75,10 @@ const App = () => {
                 
                 // Check if this is fallback data
                 if (response.data._fallback) {
-                    setError(`⚠️ OpenSky API is currently unavailable. Showing sample data for demonstration purposes.`);
+                    setError(`OpenSky API is currently unavailable. Showing sample data.`);
+                } else {
+                    // Real data fetched successfully - clear any fallback errors
+                    setError(null);
                 }
             }
         } catch (err) {
@@ -174,6 +177,7 @@ const App = () => {
     const handleRetry = useCallback(() => {
         setRetryCount(0);
         setError(null);
+        setTooWide(false);
         fetchFlights();
     }, [fetchFlights]);
 
@@ -198,17 +202,21 @@ const App = () => {
                     <p className="error-message">Area too large. Please zoom in to load flights.</p>
                 )}
                 {error && (
-                    <div className={`error-container ${error.includes('sample data') ? 'fallback-data' : ''}`}>
-                        <p className="error-message">{error}</p>
-                        {retryCount < 3 && !tooWide && (
-                            <button 
-                                onClick={handleRetry}
-                                className="retry-button"
-                                disabled={isRetrying}
-                            >
-                                {isRetrying ? 'Retrying...' : 'Retry'}
-                            </button>
-                        )}
+                    <div className="error-banner">
+                        <div className="error-content">
+                            <div className="error-icon">⚠️</div>
+                            <div className="error-text">{error}</div>
+                            {retryCount < 3 && !tooWide && (
+                                <button 
+                                    onClick={handleRetry}
+                                    className="retry-button"
+                                    disabled={isRetrying}
+                                    aria-label="Retry fetching flight data"
+                                >
+                                    {isRetrying ? 'Retrying...' : 'Retry'}
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
                 <FlightMap flights={flights} />
