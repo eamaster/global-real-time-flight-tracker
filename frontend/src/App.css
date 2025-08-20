@@ -1,1 +1,36 @@
 /* All styles for this component have been moved to index.css */
+
+.error-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+    padding: 15px;
+    background-color: rgba(255, 0, 0, 0.1);
+    border: 1px solid rgba(255, 0, 0, 0.3);
+    border-radius: 8px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.retry-button {
+    background-color: #4A90E2;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.retry-button:hover:not(:disabled) {
+    background-color: #357ABD;
+}
+
+.retry-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}

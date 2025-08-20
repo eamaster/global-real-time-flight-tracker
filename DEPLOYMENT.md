@@ -1,82 +1,147 @@
-# Quick Deployment Guide
+# Deployment Guide
 
-This guide provides step-by-step instructions to deploy the flight tracker.
+## Cloudflare Workers Deployment
 
-## Prerequisites
+### 1. Environment Variables Setup
 
-1. **OpenSky Network API Credentials** - Register at https://opensky-network.org/
-2. **Mapbox Access Token** - Get from https://account.mapbox.com/
-3. **Cloudflare Account** - https://dash.cloudflare.com/
-4. **GitHub Account**
+The Cloudflare Worker requires OpenSky API credentials to avoid rate limiting. Set these in your Cloudflare dashboard:
 
-## Step 1: Deploy Backend to Cloudflare Workers
+1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/)
+2. Navigate to Workers & Pages
+3. Select your `global-flight-tracker-api` worker
+4. Go to Settings → Environment Variables
+5. Add the following variables:
 
-```bash
-# Install Wrangler CLI
-npm install -g wrangler
-
-# Login to Cloudflare
-wrangler login
-
-# Deploy the worker
-cd backend
-wrangler deploy
+```
+OPENSKY_CLIENT_ID = "your_opensky_client_id"
+OPENSKY_CLIENT_SECRET = "your_opensky_client_secret"
 ```
 
-**Set Environment Variables in Cloudflare Dashboard:**
-1. Go to Workers & Pages > global-flight-tracker-api > Settings > Variables
-2. Add:
-   - `OPENSKY_CLIENT_ID`: Your OpenSky Network client ID
-   - `OPENSKY_CLIENT_SECRET`: Your OpenSky Network client secret
+**To get OpenSky credentials:**
+1. Visit [OpenSky Network](https://opensky-network.org/)
+2. Create an account
+3. Go to your profile → API Access
+4. Create a new application
+5. Copy the Client ID and Client Secret
 
-**Note your Worker URL:** `https://global-flight-tracker-api.your-subdomain.workers.dev`
+### 2. Deploy the Worker
 
-## Step 2: Deploy Frontend to GitHub Pages
+```bash
+cd backend
+npm install
+npx wrangler deploy
+```
 
-1. **Push code to GitHub:**
-   ```bash
-   git add .
-   git commit -m "Initial deployment"
-   git push origin main
-   ```
+### 3. Verify Deployment
 
-2. **Configure GitHub Secrets:**
-   - Go to your repository Settings > Secrets and variables > Actions
-   - Add:
-     - `VITE_MAPBOX_TOKEN`: Your Mapbox access token
-     - `VITE_API_URL`: Your Cloudflare Worker URL
+Test the API endpoint:
+```bash
+curl "https://global-flight-tracker-api.smah0085.workers.dev/api/flights?lat_min=40&lon_min=-80&lat_max=50&lon_max=-70"
+```
 
-3. **Enable GitHub Pages:**
-   - Go to repository Settings > Pages
-   - Set Source to "GitHub Actions"
-   - The workflow will automatically deploy on push to main
+## Troubleshooting 502 Errors
 
-4. **Configure Custom Domain (hesam.me):**
-   - In repository Settings > Pages
-   - Set Custom domain to: `hesam.me`
-   - Enable "Enforce HTTPS"
-   - Add CNAME DNS record: `hesam.me` → `eamaster.github.io`
-   - The site will be accessible at: `https://hesam.me/global-real-time-flight-tracker`
+### Common Causes and Solutions
 
-## Step 3: Test Your Deployment
+1. **Missing Environment Variables**
+   - Ensure `OPENSKY_CLIENT_ID` and `OPENSKY_CLIENT_SECRET` are set
+   - Check Cloudflare dashboard → Workers → Environment Variables
 
-- **Backend:** Visit `https://global-flight-tracker-api.your-subdomain.workers.dev/api/flights`
-- **Frontend:** Visit `https://hesam.me/global-real-time-flight-tracker` (custom domain with project path)
-- **Alternative:** Visit `https://eamaster.github.io/global-real-time-flight-tracker` (GitHub Pages)
+2. **OpenSky API Issues**
+   - OpenSky API can be slow or temporarily unavailable
+   - The worker now includes retry logic with exponential backoff
+   - Check [OpenSky Status](https://opensky-network.org/) for service status
 
-## Environment Variables Summary
+3. **Large Bounding Boxes**
+   - Maximum allowed area is 60° x 60° degrees
+   - Zoom in further on the map to reduce the query area
+   - The frontend now shows a clear message when area is too large
 
-### Backend (Cloudflare Workers)
-- `OPENSKY_CLIENT_ID`: OpenSky Network OAuth2 client ID
-- `OPENSKY_CLIENT_SECRET`: OpenSky Network OAuth2 client secret
+4. **Rate Limiting**
+   - Without credentials: 10 requests per minute
+   - With credentials: 1000 requests per minute
+   - The worker now handles 429 responses gracefully
 
-### Frontend (GitHub Actions)
-- `VITE_MAPBOX_TOKEN`: Mapbox GL JS access token
-- `VITE_API_URL`: Cloudflare Worker API URL
+5. **Timeout Issues**
+   - Increased timeout from 10s to 15s
+   - Added proper timeout handling and error messages
 
-## Troubleshooting
+### Monitoring and Logs
 
-- **CORS Errors:** Check browser console and ensure CORS headers are set
-- **API Rate Limits:** OpenSky free tier has limitations
-- **Build Failures:** Check GitHub Actions logs for detailed error messages
-- **Environment Variables:** Ensure all secrets are properly set in both platforms
+1. **Cloudflare Logs**
+   - View real-time logs in Cloudflare dashboard
+   - Look for 502, 429, or timeout errors
+
+2. **Frontend Console**
+   - Check browser console for detailed error messages
+   - Look for retry attempts and error details
+
+3. **API Response Headers**
+   - Check for `Retry-After` headers on rate limit errors
+   - Monitor response times and status codes
+
+## Performance Optimizations
+
+1. **Caching**
+   - Worker now caches responses for 10 seconds
+   - Reduces load on OpenSky API
+
+2. **Bounding Box Validation**
+   - Prevents overly large queries
+   - Improves response times
+
+3. **Retry Logic**
+   - Automatic retry with exponential backoff
+   - Handles temporary OpenSky API issues
+
+4. **Timeout Management**
+   - Increased timeout to 15 seconds
+   - Better handling of slow OpenSky responses
+
+## Frontend Improvements
+
+1. **Better Error Handling**
+   - Specific error messages for different HTTP status codes
+   - Manual retry button for failed requests
+   - Clear indication when area is too large
+
+2. **Retry Logic**
+   - Automatic retry for server errors (502, 500)
+   - Exponential backoff (1s, 2s, 4s delays)
+   - Maximum 3 retry attempts
+
+3. **User Experience**
+   - Loading states during retries
+   - Disabled retry button during retry attempts
+   - Clear feedback on all error conditions
+
+## Testing
+
+Test the following scenarios:
+
+1. **Normal Operation**
+   - Zoom to a reasonable area (e.g., city or region)
+   - Verify flights load correctly
+
+2. **Large Area**
+   - Zoom out to see "Area too large" message
+   - Verify zooming in resolves the issue
+
+3. **Error Handling**
+   - Temporarily disable environment variables
+   - Verify graceful fallback to public API
+   - Check retry behavior
+
+4. **Rate Limiting**
+   - Make many rapid requests
+   - Verify 429 handling and retry logic
+
+## Support
+
+If issues persist:
+
+1. Check Cloudflare Worker logs
+2. Verify OpenSky API credentials
+3. Test with smaller bounding boxes
+4. Monitor OpenSky API status
+5. Check network connectivity from Cloudflare edge locations

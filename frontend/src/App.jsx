@@ -11,18 +11,23 @@ const App = () => {
     const abortControllerRef = useRef(null);
     const [lastBounds, setLastBounds] = useState(null);
     const [tooWide, setTooWide] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
+    const [isRetrying, setIsRetrying] = useState(false);
 
-    const fetchFlights = useCallback(async () => {
+    const fetchFlights = useCallback(async (isRetry = false) => {
         // Require bounds to satisfy backend bbox requirement
         if (!lastBounds) return;
+        
         // Guard: skip if bbox exceeds backend limit (60° per side)
         const width = Math.abs(lastBounds.lon_max - lastBounds.lon_min);
         const height = Math.abs(lastBounds.lat_max - lastBounds.lat_min);
         if (width > 60 || height > 60) {
             setTooWide(true);
+            setError(null);
             return;
         }
         setTooWide(false);
+        
         // Cancel any ongoing request
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -33,6 +38,8 @@ const App = () => {
 
         try {
             setLoading(true);
+            setError(null);
+            
             // Use production Cloudflare Workers backend URL
             const apiUrl = import.meta.env.VITE_API_URL || 'https://global-flight-tracker-api.smah0085.workers.dev';
             // Always include current map bounds (required by backend)
@@ -41,7 +48,7 @@ const App = () => {
             
             const response = await axios.get(`${apiUrl}/api/flights${params}`, {
                 signal: abortControllerRef.current.signal,
-                timeout: 8000 // 8 second timeout
+                timeout: 12000 // Increased to 12 seconds to match backend timeout
             });
             
             if (response.data && response.data.flights) {
@@ -63,17 +70,75 @@ const App = () => {
                 
                 setFlights(validFlights);
                 setError(null);
+                setRetryCount(0);
                 setLastFetch(new Date().toLocaleTimeString());
             }
         } catch (err) {
             if (err.name !== 'CanceledError') {
-                setError('Error fetching flight data. Please try again later.');
                 console.error('Fetch error:', err);
+                
+                let errorMessage = 'Error fetching flight data. Please try again later.';
+                let shouldRetry = false;
+                
+                if (err.response) {
+                    const { status, data } = err.response;
+                    
+                    switch (status) {
+                        case 400:
+                            errorMessage = 'Invalid request. Please check your map view.';
+                            break;
+                        case 413:
+                            errorMessage = 'Area too large. Please zoom in further.';
+                            setTooWide(true);
+                            break;
+                        case 429:
+                            errorMessage = 'Rate limit exceeded. Please wait before trying again.';
+                            // Don't retry rate limit errors immediately
+                            break;
+                        case 502:
+                            errorMessage = 'Service temporarily unavailable. Retrying...';
+                            shouldRetry = true;
+                            break;
+                        case 500:
+                            errorMessage = 'Server error. Retrying...';
+                            shouldRetry = true;
+                            break;
+                        default:
+                            if (status >= 500) {
+                                errorMessage = 'Server error. Retrying...';
+                                shouldRetry = true;
+                            }
+                    }
+                    
+                    // Check if the error response has a custom message
+                    if (data && data.message) {
+                        errorMessage = data.message;
+                    }
+                } else if (err.code === 'ECONNABORTED') {
+                    errorMessage = 'Request timeout. The server is taking too long to respond.';
+                    shouldRetry = true;
+                } else if (err.message) {
+                    errorMessage = err.message;
+                }
+                
+                setError(errorMessage);
+                
+                // Implement retry logic with exponential backoff
+                if (shouldRetry && retryCount < 3 && !isRetry) {
+                    const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s
+                    setIsRetrying(true);
+                    
+                    setTimeout(() => {
+                        setRetryCount(prev => prev + 1);
+                        setIsRetrying(false);
+                        fetchFlights(true); // Retry
+                    }, delay);
+                }
             }
         } finally {
             setLoading(false);
         }
-    }, [lastBounds]);
+    }, [lastBounds, retryCount, isRetrying]);
 
     // Subscribe to map bounds updates from FlightMap
     useEffect(() => {
@@ -85,6 +150,11 @@ const App = () => {
     // Start fetching only after we have initial bounds; refresh on bounds changes
     useEffect(() => {
         if (!lastBounds) return;
+        
+        // Reset retry count when bounds change
+        setRetryCount(0);
+        setError(null);
+        
         fetchFlights();
         const interval = setInterval(fetchFlights, 15000);
         return () => {
@@ -94,6 +164,13 @@ const App = () => {
             }
         };
     }, [lastBounds, fetchFlights]);
+
+    // Manual retry function
+    const handleRetry = useCallback(() => {
+        setRetryCount(0);
+        setError(null);
+        fetchFlights();
+    }, [fetchFlights]);
 
     return (
         <div className="App">
@@ -106,13 +183,29 @@ const App = () => {
                 )}
             </header>
             <main className="main-content">
-                {loading && flights.length === 0 && (
+                {loading && flights.length === 0 && !isRetrying && (
                     <p className="loading-message">Loading flight data...</p>
+                )}
+                {isRetrying && (
+                    <p className="loading-message">Retrying... (Attempt {retryCount + 1}/3)</p>
                 )}
                 {tooWide && (
                     <p className="error-message">Area too large. Please zoom in to load flights.</p>
                 )}
-                {error && <p className="error-message">{error}</p>}
+                {error && (
+                    <div className="error-container">
+                        <p className="error-message">{error}</p>
+                        {retryCount < 3 && !tooWide && (
+                            <button 
+                                onClick={handleRetry}
+                                className="retry-button"
+                                disabled={isRetrying}
+                            >
+                                {isRetrying ? 'Retrying...' : 'Retry'}
+                            </button>
+                        )}
+                    </div>
+                )}
                 <FlightMap flights={flights} />
             </main>
         </div>

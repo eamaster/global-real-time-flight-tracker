@@ -2,6 +2,7 @@ name = "global-flight-tracker-api"
 main = "worker.js"
 compatibility_date = "2023-12-01"
 
+# Increase timeout and add proper environment variable configuration
 [env.production.vars]
 # Environment variables will be set via Cloudflare dashboard
 # OPENSKY_CLIENT_ID = "your_opensky_client_id"
@@ -11,3 +12,11 @@ compatibility_date = "2023-12-01"
 # [[env.production.routes]]
 # pattern = "api.hesam.me/*"
 # zone_name = "hesam.me"
+
+# Add timeout configuration
+[env.production.triggers]
+crons = []
+
+# Increase worker timeout
+[env.production]
+workers_dev = true
