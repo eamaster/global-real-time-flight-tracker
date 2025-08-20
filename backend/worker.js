@@ -188,7 +188,7 @@ const fetchFlightData = async (request) => {
                     } else if (response.status === 503) {
                         // OpenSky API is down - return fallback data
                         console.log('OpenSky API is down (503), returning fallback data');
-                        return getFallbackFlightData(minLat, maxLat, minLon, maxLon);
+                        return await getFallbackFlightData(minLat, maxLat, minLon, maxLon);
                     } else if (response.status >= 500) {
                         // For upstream errors, try to retry
                         if (retryCount < maxRetries - 1) {
@@ -244,7 +244,7 @@ const fetchFlightData = async (request) => {
                 
                 if (Number.isFinite(lat_min) && Number.isFinite(lon_min) && 
                     Number.isFinite(lat_max) && Number.isFinite(lon_max)) {
-                    return getFallbackFlightData(lat_min, lat_max, lon_min, lon_max);
+                    return await getFallbackFlightData(lat_min, lat_max, lon_min, lon_max);
                 }
                 
                 return new Response(
@@ -273,43 +273,97 @@ const fetchFlightData = async (request) => {
 };
 
 // Function to generate fallback flight data when OpenSky is down
-const getFallbackFlightData = (minLat, maxLat, minLon, maxLon) => {
-    console.log('Generating fallback flight data');
+const getFallbackFlightData = async (minLat, maxLat, minLon, maxLon) => {
+    console.log('OpenSky API is down, using enhanced sample data fallback...');
     
-    // Generate some sample flights in the requested area
+    // Using enhanced sample data as fallback
+    return generateSampleFlightData(minLat, maxLat, minLon, maxLon);
+};
+
+// Function to generate enhanced sample flight data (final fallback)
+const generateSampleFlightData = (minLat, maxLat, minLon, maxLon) => {
+    console.log('Generating enhanced sample flight data as final fallback');
+    
+    // Generate realistic sample flights in the requested area
     const sampleFlights = [];
-    const numFlights = Math.min(20, Math.floor(Math.random() * 30) + 10); // 10-40 flights
+    const numFlights = Math.min(25, Math.floor(Math.random() * 35) + 15); // 15-50 flights
+    
+    // Realistic aircraft types and patterns
+    const aircraftTypes = [
+        { category: 2, type: 'Light Aircraft', callsigns: ['N1234', 'G-ABCD', 'F-ABCD'] },
+        { category: 3, type: 'Small Aircraft', callsigns: ['C-GABC', 'N5678', 'G-EFGH'] },
+        { category: 4, type: 'Large Aircraft', callsigns: ['BA123', 'AA456', 'DL789'] },
+        { category: 6, type: 'Heavy Aircraft', callsigns: ['LH123', 'AF456', 'EK789'] }
+    ];
+    
+    // Realistic countries for the region
+    const countries = ['United States', 'Canada', 'United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy'];
     
     for (let i = 0; i < numFlights; i++) {
         const lat = minLat + Math.random() * (maxLat - minLat);
         const lon = minLon + Math.random() * (maxLon - minLon);
         
+        // Select realistic aircraft type
+        const aircraftType = aircraftTypes[Math.floor(Math.random() * aircraftTypes.length)];
+        const callsign = aircraftType.callsigns[Math.floor(Math.random() * aircraftType.callsigns.length)] + 
+                        Math.floor(Math.random() * 999).toString().padStart(3, '0');
+        
+        // Realistic altitude based on aircraft type
+        let altitude;
+        if (aircraftType.category === 2) { // Light aircraft
+            altitude = Math.floor(Math.random() * 3000) + 500; // 500-3500m
+        } else if (aircraftType.category === 3) { // Small aircraft
+            altitude = Math.floor(Math.random() * 6000) + 1000; // 1000-7000m
+        } else { // Large/Heavy aircraft
+            altitude = Math.floor(Math.random() * 12000) + 8000; // 8000-20000m
+        }
+        
+        // Realistic speed based on aircraft type
+        let speed;
+        if (aircraftType.category === 2) { // Light aircraft
+            speed = Math.floor(Math.random() * 80) + 40; // 40-120 m/s
+        } else if (aircraftType.category === 3) { // Small aircraft
+            speed = Math.floor(Math.random() * 120) + 80; // 80-200 m/s
+        } else { // Large/Heavy aircraft
+            speed = Math.floor(Math.random() * 200) + 150; // 150-350 m/s
+        }
+        
+        // Realistic heading (avoid random directions)
+        const heading = Math.floor(Math.random() * 360);
+        
+        // Realistic vertical rate
+        const verticalRate = Math.floor(Math.random() * 15) - 7; // -7 to +8 m/s
+        
+        // Realistic ground status (higher aircraft less likely to be on ground)
+        const onGround = aircraftType.category >= 4 ? Math.random() > 0.95 : Math.random() > 0.7;
+        
         sampleFlights.push([
-            `FALLBACK${i.toString().padStart(3, '0')}`, // icao24
-            `FL${i.toString().padStart(3, '0')}`, // callsign
-            'Unknown', // origin_country
+            `SAMPLE${i.toString().padStart(3, '0')}`, // icao24
+            callsign, // callsign
+            countries[Math.floor(Math.random() * countries.length)], // origin_country
             Math.floor(Date.now() / 1000), // time_position
             Math.floor(Date.now() / 1000), // last_contact
             lon, // longitude
             lat, // latitude
-            Math.floor(Math.random() * 12000) + 1000, // baro_altitude (1000-13000m)
-            Math.random() > 0.8, // on_ground (20% chance)
-            Math.floor(Math.random() * 250) + 50, // velocity (50-300 m/s)
-            Math.floor(Math.random() * 360), // true_track (0-359°)
-            Math.floor(Math.random() * 20) - 10, // vertical_rate (-10 to +10 m/s)
+            altitude, // baro_altitude
+            onGround, // on_ground
+            speed, // velocity
+            heading, // true_track
+            verticalRate, // vertical_rate
             [], // sensors
-            Math.floor(Math.random() * 12000) + 1000, // geo_altitude
-            '0000', // squawk
+            altitude + Math.floor(Math.random() * 100) - 50, // geo_altitude (slightly different)
+            Math.floor(Math.random() * 9999).toString().padStart(4, '0'), // squawk
             false, // spi
             0, // position_source
-            2 // category (Small aircraft - 15500 to 75000 lbs)
+            aircraftType.category // category
         ]);
     }
     
     const fallbackData = {
         states: sampleFlights,
         _fallback: true,
-        _message: 'OpenSky API is currently unavailable. Showing sample data.'
+        _source: 'enhanced_sample',
+        _message: 'OpenSky API unavailable. Showing enhanced sample data for demonstration.'
     };
     
     return processFlightData(fallbackData);

@@ -75,7 +75,14 @@ const App = () => {
                 
                 // Check if this is fallback data
                 if (response.data._fallback) {
-                    setError(`OpenSky API is currently unavailable. Showing sample data.`);
+                    const source = response.data._source || 'unknown';
+                    const message = response.data._message || 'API unavailable. Showing fallback data.';
+                    
+                    if (source === 'enhanced_sample') {
+                        setError(`⚠️ ${message}`);
+                    } else {
+                        setError(`⚠️ ${message}`);
+                    }
                 } else {
                     // Real data fetched successfully - animate out the error banner
                     const banner = document.querySelector('.error-banner');
@@ -233,14 +240,14 @@ const App = () => {
                     <p className="error-message">Area too large. Please zoom in to load flights.</p>
                 )}
                 {error && (
-                    <div 
-                        className="error-banner" 
+                    <div
+                        className="error-banner"
                         aria-live="polite"
                         role="alert"
                         aria-label="Error notification"
                     >
                         <div className="error-content">
-                            <button 
+                            <button
                                 className="close-button"
                                 onClick={closeErrorBanner}
                                 aria-label="Close error message"
@@ -249,9 +256,16 @@ const App = () => {
                                 ×
                             </button>
                             <div className="error-icon">⚠️</div>
-                            <div className="error-text">{error}</div>
+                            <div className="error-text">
+                                {error}
+                                {data && data._source === 'enhanced_sample' && (
+                                    <span className="data-source">
+                                        {' '}Data source: Enhanced Sample Data
+                                    </span>
+                                )}
+                            </div>
                             {retryCount < 3 && !tooWide && (
-                                <button 
+                                <button
                                     onClick={handleRetry}
                                     className="retry-button"
                                     disabled={isRetrying}
