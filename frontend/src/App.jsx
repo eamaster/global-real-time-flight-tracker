@@ -77,8 +77,16 @@ const App = () => {
                 if (response.data._fallback) {
                     setError(`OpenSky API is currently unavailable. Showing sample data.`);
                 } else {
-                    // Real data fetched successfully - clear any fallback errors
-                    setError(null);
+                    // Real data fetched successfully - animate out the error banner
+                    const banner = document.querySelector('.error-banner');
+                    if (banner) {
+                        banner.classList.add('hiding');
+                        setTimeout(() => {
+                            setError(null);
+                        }, 300);
+                    } else {
+                        setError(null);
+                    }
                 }
             }
         } catch (err) {
@@ -173,12 +181,35 @@ const App = () => {
         };
     }, [lastBounds, fetchFlights]);
 
+    // Function to close error banner with animation
+    const closeErrorBanner = useCallback(() => {
+        const banner = document.querySelector('.error-banner');
+        if (banner) {
+            banner.classList.add('hiding');
+            setTimeout(() => {
+                setError(null);
+            }, 300); // Match animation duration
+        } else {
+            setError(null);
+        }
+    }, []);
+
     // Manual retry function
     const handleRetry = useCallback(() => {
         setRetryCount(0);
-        setError(null);
         setTooWide(false);
-        fetchFlights();
+        // Animate out the error banner before retrying
+        const banner = document.querySelector('.error-banner');
+        if (banner) {
+            banner.classList.add('hiding');
+            setTimeout(() => {
+                setError(null);
+                fetchFlights();
+            }, 300);
+        } else {
+            setError(null);
+            fetchFlights();
+        }
     }, [fetchFlights]);
 
     return (
@@ -202,8 +233,21 @@ const App = () => {
                     <p className="error-message">Area too large. Please zoom in to load flights.</p>
                 )}
                 {error && (
-                    <div className="error-banner">
+                    <div 
+                        className="error-banner" 
+                        aria-live="polite"
+                        role="alert"
+                        aria-label="Error notification"
+                    >
                         <div className="error-content">
+                            <button 
+                                className="close-button"
+                                onClick={closeErrorBanner}
+                                aria-label="Close error message"
+                                title="Close"
+                            >
+                                ×
+                            </button>
                             <div className="error-icon">⚠️</div>
                             <div className="error-text">{error}</div>
                             {retryCount < 3 && !tooWide && (
@@ -213,7 +257,14 @@ const App = () => {
                                     disabled={isRetrying}
                                     aria-label="Retry fetching flight data"
                                 >
-                                    {isRetrying ? 'Retrying...' : 'Retry'}
+                                    {isRetrying ? (
+                                        <>
+                                            <span className="spinner"></span>
+                                            Retrying...
+                                        </>
+                                    ) : (
+                                        'Retry'
+                                    )}
                                 </button>
                             )}
                         </div>
