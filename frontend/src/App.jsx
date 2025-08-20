@@ -82,7 +82,7 @@ const App = () => {
                     const message = response.data._message || 'API unavailable. Showing fallback data.';
                     
                     if (source === 'enhanced_sample') {
-                        setError(`⚠️ ${message} (Enhanced Sample Data)`);
+                        setError(`⚠️ Using sample data (OpenSky unavailable)`);
                     } else {
                         setError(`⚠️ ${message}`);
                     }
@@ -103,7 +103,7 @@ const App = () => {
             if (err.name !== 'CanceledError') {
                 console.error('Fetch error:', err);
                 
-                let errorMessage = 'Error fetching flight data. Please try again later.';
+                let errorMessage = 'Error fetching flight data. Please retry.';
                 let shouldRetry = false;
                 
                 if (err.response) {
@@ -114,11 +114,11 @@ const App = () => {
                             errorMessage = 'Invalid request. Please check your map view.';
                             break;
                         case 413:
-                            errorMessage = 'Area too large. Please zoom in further.';
+                            errorMessage = 'Area too large. Please zoom in.';
                             setTooWide(true);
                             break;
                         case 429:
-                            errorMessage = 'Rate limit exceeded. Please wait before trying again.';
+                            errorMessage = 'Rate limit exceeded. Please wait.';
                             // Don't retry rate limit errors immediately
                             break;
                         case 502:
@@ -141,7 +141,7 @@ const App = () => {
                         errorMessage = responseData.message;
                     }
                 } else if (err.code === 'ECONNABORTED') {
-                    errorMessage = 'Request timeout. The server is taking too long to respond.';
+                    errorMessage = 'Request timeout. Please retry.';
                     shouldRetry = true;
                 } else if (err.message) {
                     errorMessage = err.message;
