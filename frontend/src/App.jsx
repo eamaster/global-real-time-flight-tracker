@@ -15,28 +15,31 @@ const App = () => {
     const [isRetrying, setIsRetrying] = useState(false);
 
     const fetchFlights = useCallback(async (isRetry = false) => {
-        // Require bounds to satisfy backend bbox requirement
-        if (!lastBounds) return;
-        
-        // Guard: skip if bbox exceeds backend limit (60° per side)
-        const width = Math.abs(lastBounds.lon_max - lastBounds.lon_min);
-        const height = Math.abs(lastBounds.lat_max - lastBounds.lat_min);
-        if (width > 60 || height > 60) {
-            setTooWide(true);
-            setError(null);
-            return;
-        }
-        setTooWide(false);
-        
-        // Cancel any ongoing request
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-
-        // Create new abort controller for this request
-        abortControllerRef.current = new AbortController();
-
         try {
+            // Require bounds to satisfy backend bbox requirement
+            if (!lastBounds) {
+                return;
+            }
+            
+            // Guard: skip if bbox exceeds backend limit (60° per side)
+            const width = Math.abs(lastBounds.lon_max - lastBounds.lon_min);
+            const height = Math.abs(lastBounds.lat_max - lastBounds.lat_min);
+            
+            if (width > 60 || height > 60) {
+                setTooWide(true);
+                setError(null);
+                return;
+            }
+            setTooWide(false);
+            
+            // Cancel any ongoing request
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+
+            // Create new abort controller for this request
+            abortControllerRef.current = new AbortController();
+
             setLoading(true);
             setError(null);
             
@@ -79,7 +82,7 @@ const App = () => {
                     const message = response.data._message || 'API unavailable. Showing fallback data.';
                     
                     if (source === 'enhanced_sample') {
-                        setError(`⚠️ ${message}`);
+                        setError(`⚠️ ${message} (Enhanced Sample Data)`);
                     } else {
                         setError(`⚠️ ${message}`);
                     }
@@ -104,7 +107,7 @@ const App = () => {
                 let shouldRetry = false;
                 
                 if (err.response) {
-                    const { status, data } = err.response;
+                    const { status, data: responseData } = err.response;
                     
                     switch (status) {
                         case 400:
@@ -134,8 +137,8 @@ const App = () => {
                     }
                     
                     // Check if the error response has a custom message
-                    if (data && data.message) {
-                        errorMessage = data.message;
+                    if (responseData && responseData.message) {
+                        errorMessage = responseData.message;
                     }
                 } else if (err.code === 'ECONNABORTED') {
                     errorMessage = 'Request timeout. The server is taking too long to respond.';
@@ -258,11 +261,6 @@ const App = () => {
                             <div className="error-icon">⚠️</div>
                             <div className="error-text">
                                 {error}
-                                {data && data._source === 'enhanced_sample' && (
-                                    <span className="data-source">
-                                        {' '}Data source: Enhanced Sample Data
-                                    </span>
-                                )}
                             </div>
                             {retryCount < 3 && !tooWide && (
                                 <button
@@ -284,7 +282,20 @@ const App = () => {
                         </div>
                     </div>
                 )}
-                <FlightMap flights={flights} />
+                {flights && flights.length >= 0 ? (
+                    <FlightMap flights={flights} />
+                ) : (
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        height: '100%',
+                        color: '#666',
+                        fontSize: '16px'
+                    }}>
+                        Loading map...
+                    </div>
+                )}
             </main>
         </div>
     );
