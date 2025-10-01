@@ -31,8 +31,8 @@ const App = () => {
             const width = Math.abs(lastBounds.lon_max - lastBounds.lon_min);
             const height = Math.abs(lastBounds.lat_max - lastBounds.lat_min);
             
-            // Check if area is too large (more lenient: 100° for better world view)
-            if (width > 100 || height > 100) {
+            // Check if area is too large (80° matches FlightRadar24 behavior)
+            if (width > 80 || height > 80) {
                 setTooWide(true);
                 setError(null);
                 setLoading(false);
@@ -62,16 +62,32 @@ const App = () => {
             });
             
             if (response.data && response.data.flights) {
-                // Filter and process flight data
+                // Filter and process flight data with FlightRadar24-like filtering
                 const validFlights = response.data.flights
-                    .filter(flight => 
-                        flight && 
-                        flight.icao24 && 
-                        typeof flight.latitude === 'number' && 
-                        typeof flight.longitude === 'number' &&
-                        !isNaN(flight.latitude) && 
-                        !isNaN(flight.longitude)
-                    )
+                    .filter(flight => {
+                        // Basic validation
+                        if (!flight || !flight.icao24) return false;
+                        if (typeof flight.latitude !== 'number' || typeof flight.longitude !== 'number') return false;
+                        if (isNaN(flight.latitude) || isNaN(flight.longitude)) return false;
+                        
+                        // Filter out grounded aircraft (critical for realistic display)
+                        if (flight.on_ground === true) return false;
+                        
+                        // Filter by altitude - only show aircraft above 100 meters (like FlightRadar24)
+                        // This removes ground operations, taxiing, and very low altitude flights
+                        const altitude = flight.baro_altitude || flight.geo_altitude || 0;
+                        if (altitude < 100) return false;
+                        
+                        // Filter out stale data (position older than 60 seconds)
+                        const now = Math.floor(Date.now() / 1000);
+                        if (flight.time_position && (now - flight.time_position) > 60) return false;
+                        
+                        // Filter out stationary or very slow aircraft (< 50 m/s = ~100 knots)
+                        // This removes aircraft parked or taxiing slowly
+                        if (flight.velocity !== null && flight.velocity < 50) return false;
+                        
+                        return true;
+                    })
                     .map(flight => ({
                         ...flight,
                         // Ensure heading property exists (use true_track as heading)
