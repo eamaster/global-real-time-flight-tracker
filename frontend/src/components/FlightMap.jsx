@@ -135,24 +135,35 @@ const FlightMap = ({ flights, onValidFlightCountChange }) => {
         });
 
         // Throttle move events for better performance and emit bounds for bbox querying
+        // Use longer delay (500ms) to prevent excessive API calls during pan/zoom
         let moveTimeout;
+        let lastBoundsUpdate = 0;
+        const MIN_UPDATE_INTERVAL = 500; // Minimum 500ms between bound updates
+        
         map.current.on('move', () => {
             if (moveTimeout) clearTimeout(moveTimeout);
             moveTimeout = setTimeout(() => {
-            setLng(map.current.getCenter().lng.toFixed(4));
-            setLat(map.current.getCenter().lat.toFixed(4));
-            setZoom(map.current.getZoom().toFixed(2));
-            try {
-                const b = map.current.getBounds();
-                const detail = {
-                    lat_min: b.getSouth(),
-                    lon_min: b.getWest(),
-                    lat_max: b.getNorth(),
-                    lon_max: b.getEast()
-                };
-                window.dispatchEvent(new CustomEvent('map-bounds-changed', { detail }));
-            } catch (_) {}
-            }, 100);
+                const now = Date.now();
+                // Only update if enough time has passed since last update
+                if (now - lastBoundsUpdate < MIN_UPDATE_INTERVAL) {
+                    return;
+                }
+                lastBoundsUpdate = now;
+                
+                setLng(map.current.getCenter().lng.toFixed(4));
+                setLat(map.current.getCenter().lat.toFixed(4));
+                setZoom(map.current.getZoom().toFixed(2));
+                try {
+                    const b = map.current.getBounds();
+                    const detail = {
+                        lat_min: b.getSouth(),
+                        lon_min: b.getWest(),
+                        lat_max: b.getNorth(),
+                        lon_max: b.getEast()
+                    };
+                    window.dispatchEvent(new CustomEvent('map-bounds-changed', { detail }));
+                } catch (_) {}
+            }, 500); // Increased from 100ms to 500ms for better throttling
         });
 
         // Add navigation control
@@ -232,29 +243,26 @@ const FlightMap = ({ flights, onValidFlightCountChange }) => {
         const elapsed = now - (interpolationStartTime.current || now);
         const progress = Math.min(elapsed / INTERPOLATION_DURATION, 1);
         
-        // Easing function for smooth movement (ease-out)
-        const easeProgress = 1 - Math.pow(1 - progress, 2);
-
-        // Interpolate positions for all flights
+        // Linear interpolation (no easing for consistent speed)
         const interpolatedFeatures = [];
         targetPositions.current.forEach((target, icao24) => {
             const previous = previousPositions.current.get(icao24);
             
-            if (!previous) {
-                // No previous position, use target directly
+            if (!previous || progress >= 1.0) {
+                // No previous position OR interpolation complete - use target position directly
                 interpolatedFeatures.push(createFeature(target, target.longitude, target.latitude));
                 return;
             }
 
             // Linear interpolation between previous and target positions
-            const lng = previous.longitude + (target.longitude - previous.longitude) * easeProgress;
-            const lat = previous.latitude + (target.latitude - previous.latitude) * easeProgress;
+            const lng = previous.longitude + (target.longitude - previous.longitude) * progress;
+            const lat = previous.latitude + (target.latitude - previous.latitude) * progress;
             
             // Smooth heading interpolation (handle 360° wraparound)
             let headingDiff = target.heading - previous.heading;
             if (headingDiff > 180) headingDiff -= 360;
             if (headingDiff < -180) headingDiff += 360;
-            const heading = previous.heading + headingDiff * easeProgress;
+            const heading = previous.heading + headingDiff * progress;
 
             interpolatedFeatures.push(createFeature({
                 ...target,
@@ -276,31 +284,31 @@ const FlightMap = ({ flights, onValidFlightCountChange }) => {
 
     // Helper function to create GeoJSON feature
     const createFeature = (flight, lng, lat) => {
-        // Use true_track for actual course over ground (movement direction)
-        const actualHeading = typeof flight.true_track === 'number' ? flight.true_track : 
-                            (typeof flight.heading === 'number' ? flight.heading : 0);
-        
+                // Use true_track for actual course over ground (movement direction)
+                const actualHeading = typeof flight.true_track === 'number' ? flight.true_track : 
+                                    (typeof flight.heading === 'number' ? flight.heading : 0);
+                
         // Airplane emoji ✈️ naturally points to the right (East = 90°)
         // To align the nose with true_track direction, subtract 90°
         const adjustedHeading = actualHeading - 90;
-        
-        return {
-            type: 'Feature',
-            properties: {
-                icao24: flight.icao24,
-                callsign: flight.callsign || 'Unknown',
-                origin_country: flight.origin_country || 'Unknown',
-                baro_altitude: flight.baro_altitude,
-                velocity: flight.velocity,
+                
+                return {
+                    type: 'Feature',
+                    properties: {
+                        icao24: flight.icao24,
+                        callsign: flight.callsign || 'Unknown',
+                        origin_country: flight.origin_country || 'Unknown',
+                        baro_altitude: flight.baro_altitude,
+                        velocity: flight.velocity,
                 vertical_rate: flight.vertical_rate,
                 on_ground: flight.on_ground,
                 position_source: flight.position_source,
                 true_track: flight.true_track,
                 heading: adjustedHeading,
-                timestamp: Date.now()
-            },
-            geometry: {
-                type: 'Point',
+                        timestamp: Date.now()
+                    },
+                    geometry: {
+                        type: 'Point',
                 coordinates: [lng, lat]
             }
         };
@@ -330,19 +338,45 @@ const FlightMap = ({ flights, onValidFlightCountChange }) => {
 
         // Update target positions and start new interpolation
         updateFrame.current = requestAnimationFrame(() => {
-            // Store current positions as previous positions for next update
+            const now = Date.now();
+            const elapsed = now - (interpolationStartTime.current || now);
+            const currentProgress = Math.min(elapsed / INTERPOLATION_DURATION, 1);
+            
+            // Store current interpolated positions as previous positions (prevents backward movement)
             const newPreviousPositions = new Map();
             const newTargetPositions = new Map();
 
             validFlights.forEach(flight => {
                 const icao24 = flight.icao24;
-                
-                // Get current target as previous (or use current if first time)
+                const previousPos = previousPositions.current.get(icao24);
                 const currentTarget = targetPositions.current.get(icao24);
-                if (currentTarget) {
-                    newPreviousPositions.set(icao24, currentTarget);
+                
+                if (currentTarget && previousPos && currentProgress < 1.0) {
+                    // Calculate current interpolated position (where flight is RIGHT NOW)
+                    const currentLng = previousPos.longitude + (currentTarget.longitude - previousPos.longitude) * currentProgress;
+                    const currentLat = previousPos.latitude + (currentTarget.latitude - previousPos.latitude) * currentProgress;
+                    
+                    // Heading interpolation
+                    let headingDiff = currentTarget.heading - previousPos.heading;
+                    if (headingDiff > 180) headingDiff -= 360;
+                    if (headingDiff < -180) headingDiff += 360;
+                    const currentHeading = previousPos.heading + headingDiff * currentProgress;
+                    
+                    // Use CURRENT interpolated position as previous (smooth continuation)
+                    newPreviousPositions.set(icao24, {
+                        longitude: currentLng,
+                        latitude: currentLat,
+                        heading: currentHeading
+                    });
+                } else if (currentTarget) {
+                    // Interpolation complete or no previous - use target as previous
+                    newPreviousPositions.set(icao24, {
+                        longitude: currentTarget.longitude,
+                        latitude: currentTarget.latitude,
+                        heading: currentTarget.heading || (typeof flight.true_track === 'number' ? flight.true_track : 0)
+                    });
                 } else {
-                    // First time seeing this flight, no interpolation needed
+                    // First time seeing this flight
                     newPreviousPositions.set(icao24, {
                         longitude: flight.longitude,
                         latitude: flight.latitude,
@@ -361,7 +395,7 @@ const FlightMap = ({ flights, onValidFlightCountChange }) => {
             targetPositions.current = newTargetPositions;
             interpolationStartTime.current = Date.now();
         });
-    }, [validFlights, isMapLoaded]);
+    }, [validFlights, isMapLoaded, INTERPOLATION_DURATION]);
 
     return (
         <div className="flight-map-wrapper">
