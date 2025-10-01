@@ -104,13 +104,13 @@ const fetchFlightData = async (request) => {
             const minLon = Math.max(-180, Math.min(180, parseFloat(lon_min)));
             const maxLon = Math.max(-180, Math.min(180, parseFloat(lon_max)));
 
-            // Reject huge boxes (> 60 x 60 degrees)
+            // Reject huge boxes (> 100 x 100 degrees) - more lenient for better coverage
             if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLon) || !Number.isFinite(maxLon) ||
-                Math.abs(maxLat - minLat) > 60 || Math.abs(maxLon - minLon) > 60) {
+                Math.abs(maxLat - minLat) > 100 || Math.abs(maxLon - minLon) > 100) {
                 return new Response(
                     JSON.stringify({ 
                         message: 'Bounding box too large. Please zoom in further.',
-                        hint: 'Maximum allowed area is 60° x 60° degrees'
+                        hint: 'Maximum allowed area is 100° x 100° degrees'
                     }),
                     {
                         status: 413,
