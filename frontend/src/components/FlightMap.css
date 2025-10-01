@@ -65,3 +65,25 @@
 .plane:hover {
     opacity: 0.8;
 }
+
+/* Enhanced popup styling */
+.loading-info {
+    color: #FFA726;
+    font-style: italic;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.info-note {
+    color: #64B5F6;
+    font-style: italic;
+}
+
+.success-note {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}

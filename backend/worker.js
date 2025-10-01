@@ -4,6 +4,10 @@
 let accessToken = null;
 let tokenExpiry = 0;
 
+// Cache for flight info and tracks (24h and 1h TTL respectively)
+const flightInfoCache = new Map();
+const flightTrackCache = new Map();
+
 // Function to get OAuth2 token from OpenSky Network
 const getOpenSkyToken = async () => {
     // Check if we have a valid token
@@ -476,6 +480,109 @@ const handleCORS = () => {
     });
 };
 
+// Function to fetch flight info (departure/arrival airports)
+const fetchFlightInfo = async (icao24) => {
+    // Check cache first (24 hour TTL)
+    const cacheKey = `info_${icao24}`;
+    const cached = flightInfoCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 86400000) { // 24 hours
+        return cached.data;
+    }
+    
+    try {
+        const token = await getOpenSkyToken();
+        if (!token) {
+            return null; // No auth, skip
+        }
+        
+        const now = Math.floor(Date.now() / 1000);
+        const begin = now - 86400; // 24 hours ago
+        const end = now;
+        
+        const response = await fetch(
+            `https://opensky-network.org/api/flights/aircraft?icao24=${icao24.toLowerCase()}&begin=${begin}&end=${end}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            }
+        );
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const flights = await response.json();
+        const latestFlight = flights && flights.length > 0 ? flights[flights.length - 1] : null;
+        
+        // Cache the result
+        flightInfoCache.set(cacheKey, {
+            data: latestFlight,
+            timestamp: Date.now()
+        });
+        
+        // Clean old cache entries (keep last 1000)
+        if (flightInfoCache.size > 1000) {
+            const firstKey = flightInfoCache.keys().next().value;
+            flightInfoCache.delete(firstKey);
+        }
+        
+        return latestFlight;
+    } catch (error) {
+        console.error('Error fetching flight info:', error.message);
+        return null;
+    }
+};
+
+// Function to fetch flight track/trajectory
+const fetchFlightTrack = async (icao24) => {
+    // Check cache first (1 hour TTL)
+    const cacheKey = `track_${icao24}`;
+    const cached = flightTrackCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 3600000) { // 1 hour
+        return cached.data;
+    }
+    
+    try {
+        const token = await getOpenSkyToken();
+        if (!token) {
+            return null; // No auth, skip
+        }
+        
+        const response = await fetch(
+            `https://opensky-network.org/api/tracks/all?icao24=${icao24.toLowerCase()}&time=0`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            }
+        );
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const track = await response.json();
+        
+        // Cache the result
+        flightTrackCache.set(cacheKey, {
+            data: track,
+            timestamp: Date.now()
+        });
+        
+        // Clean old cache entries (keep last 500)
+        if (flightTrackCache.size > 500) {
+            const firstKey = flightTrackCache.keys().next().value;
+            flightTrackCache.delete(firstKey);
+        }
+        
+        return track;
+    } catch (error) {
+        console.error('Error fetching flight track:', error.message);
+        return null;
+    }
+};
+
 // Main event listener for Cloudflare Workers
 addEventListener('fetch', event => {
     event.respondWith(handleRequest(event.request));
@@ -494,13 +601,83 @@ async function handleRequest(request) {
         return await fetchFlightData(request);
     }
     
+    // Handle flight info endpoint
+    if (url.pathname === '/api/flight-info' && request.method === 'GET') {
+        const icao24 = url.searchParams.get('icao24');
+        if (!icao24) {
+            return new Response(
+                JSON.stringify({ error: 'icao24 parameter required' }),
+                {
+                    status: 400,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                    }
+                }
+            );
+        }
+        
+        const flightInfo = await fetchFlightInfo(icao24);
+        return new Response(
+            JSON.stringify(flightInfo || {}),
+            {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization',
+                    'Cache-Control': 'public, max-age=3600' // Cache 1 hour
+                }
+            }
+        );
+    }
+    
+    // Handle flight track endpoint
+    if (url.pathname === '/api/flight-track' && request.method === 'GET') {
+        const icao24 = url.searchParams.get('icao24');
+        if (!icao24) {
+            return new Response(
+                JSON.stringify({ error: 'icao24 parameter required' }),
+                {
+                    status: 400,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                    }
+                }
+            );
+        }
+        
+        const track = await fetchFlightTrack(icao24);
+        return new Response(
+            JSON.stringify(track || {}),
+            {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization',
+                    'Cache-Control': 'public, max-age=600' // Cache 10 minutes
+                }
+            }
+        );
+    }
+    
     // Handle root path with basic info
     if (url.pathname === '/') {
         return new Response(
             JSON.stringify({ 
                 message: 'Global Real-Time Flight Tracker API',
                 endpoints: {
-                    '/api/flights': 'GET - Fetch real-time flight data'
+                    '/api/flights': 'GET - Fetch real-time flight data',
+                    '/api/flight-info': 'GET - Fetch flight info (departure/arrival)',
+                    '/api/flight-track': 'GET - Fetch flight trajectory'
                 }
             }),
             {

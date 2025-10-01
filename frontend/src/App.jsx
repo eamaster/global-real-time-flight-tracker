@@ -14,11 +14,36 @@ const App = () => {
     const [retryCount, setRetryCount] = useState(0);
     const [isRetrying, setIsRetrying] = useState(false);
     const [validFlightCount, setValidFlightCount] = useState(0); // Track rendered flights
+    const [searchQuery, setSearchQuery] = useState(''); // Search input
+    const [selectedAircraft, setSelectedAircraft] = useState(null); // Selected aircraft to follow
 
     // Callback to receive valid flight count from FlightMap
     const handleValidFlightCountChange = useCallback((count) => {
         setValidFlightCount(count);
     }, []);
+
+    // Handle search for specific aircraft
+    const handleSearch = useCallback((e) => {
+        e.preventDefault();
+        const query = searchQuery.trim().toUpperCase();
+        if (!query) {
+            setSelectedAircraft(null);
+            return;
+        }
+        
+        // Find matching flight
+        const matching = flights.find(f => 
+            f.icao24?.toUpperCase() === query || 
+            f.callsign?.trim().toUpperCase() === query
+        );
+        
+        if (matching) {
+            setSelectedAircraft(matching.icao24);
+        } else {
+            setError(`No flight found for "${query}"`);
+            setTimeout(() => setError(null), 3000);
+        }
+    }, [searchQuery, flights]);
 
     const fetchFlights = useCallback(async (isRetry = false) => {
         try {
@@ -248,10 +273,36 @@ const App = () => {
     return (
         <div className="App">
             <header className="App-header">
-                <h1>Global Real-Time Flight Tracker</h1>
+                <div className="header-top">
+                    <h1>Global Real-Time Flight Tracker</h1>
+                    <form onSubmit={handleSearch} className="search-form">
+                        <input
+                            type="text"
+                            placeholder="Search flight (e.g., UAL123 or abc123)"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="search-input"
+                        />
+                        <button type="submit" className="search-button">🔍</button>
+                        {selectedAircraft && (
+                            <button 
+                                type="button" 
+                                onClick={() => {
+                                    setSelectedAircraft(null);
+                                    setSearchQuery('');
+                                }}
+                                className="clear-button"
+                                title="Clear search"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </form>
+                </div>
                 {lastFetch && (
                     <small style={{ opacity: 0.8, fontSize: '12px' }}>
                         Last updated: {lastFetch} | Flights: {validFlightCount}
+                        {selectedAircraft && ` | Following: ${selectedAircraft.toUpperCase()}`}
                     </small>
                 )}
             </header>
@@ -309,6 +360,7 @@ const App = () => {
                     <FlightMap 
                         flights={flights} 
                         onValidFlightCountChange={handleValidFlightCountChange}
+                        selectedAircraft={selectedAircraft}
                     />
                 ) : (
                     <div style={{ 
