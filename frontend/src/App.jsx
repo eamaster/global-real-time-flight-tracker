@@ -13,6 +13,12 @@ const App = () => {
     const [tooWide, setTooWide] = useState(false);
     const [retryCount, setRetryCount] = useState(0);
     const [isRetrying, setIsRetrying] = useState(false);
+    const [validFlightCount, setValidFlightCount] = useState(0); // Track rendered flights
+
+    // Callback to receive valid flight count from FlightMap
+    const handleValidFlightCountChange = useCallback((count) => {
+        setValidFlightCount(count);
+    }, []);
 
     const fetchFlights = useCallback(async (isRetry = false) => {
         try {
@@ -228,7 +234,7 @@ const App = () => {
                 <h1>Global Real-Time Flight Tracker</h1>
                 {lastFetch && (
                     <small style={{ opacity: 0.8, fontSize: '12px' }}>
-                        Last updated: {lastFetch} | Flights: {flights.length}
+                        Last updated: {lastFetch} | Flights: {validFlightCount}
                     </small>
                 )}
             </header>
@@ -283,7 +289,10 @@ const App = () => {
                     </div>
                 )}
                 {flights && flights.length >= 0 ? (
-                    <FlightMap flights={flights} />
+                    <FlightMap 
+                        flights={flights} 
+                        onValidFlightCountChange={handleValidFlightCountChange}
+                    />
                 ) : (
                     <div style={{ 
                         display: 'flex', 

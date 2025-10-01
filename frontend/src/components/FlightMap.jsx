@@ -5,7 +5,7 @@ import './FlightMap.css';
 // Set the Mapbox access token
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
-const FlightMap = ({ flights }) => {
+const FlightMap = ({ flights, onValidFlightCountChange }) => {
     const mapContainer = useRef(null);
     const map = useRef(null);
     const [lng, setLng] = useState(10);
@@ -14,10 +14,15 @@ const FlightMap = ({ flights }) => {
     const [isMapLoaded, setIsMapLoaded] = useState(false);
     const [selectedFlight, setSelectedFlight] = useState(null);
     const updateFrame = useRef(null);
+    const animationFrame = useRef(null);
+    const previousPositions = useRef(new Map()); // Store previous positions for interpolation
+    const targetPositions = useRef(new Map()); // Store target positions
+    const interpolationStartTime = useRef(null); // When interpolation started
+    const INTERPOLATION_DURATION = 15000; // 15 seconds to match update interval
 
     // Memoize valid flights to avoid recalculating
     const validFlights = useMemo(() => {
-        return flights.filter(flight => 
+        const filtered = flights.filter(flight => 
             flight && 
             flight.icao24 && 
             typeof flight.latitude === 'number' && 
@@ -28,7 +33,14 @@ const FlightMap = ({ flights }) => {
             Math.abs(flight.longitude) <= 180 &&
             typeof flight.heading === 'number'
         );
-    }, [flights]);
+        
+        // Notify parent component about valid flight count
+        if (onValidFlightCountChange) {
+            onValidFlightCountChange(filtered.length);
+        }
+        
+        return filtered;
+    }, [flights, onValidFlightCountChange]);
 
     useEffect(() => {
         if (map.current) return; // initialize map only once
@@ -151,6 +163,9 @@ const FlightMap = ({ flights }) => {
             if (updateFrame.current) {
                 cancelAnimationFrame(updateFrame.current);
             }
+            if (animationFrame.current) {
+                cancelAnimationFrame(animationFrame.current);
+            }
             if (map.current) {
             map.current.remove();
             map.current = null;
@@ -206,68 +221,144 @@ const FlightMap = ({ flights }) => {
         return sources[source] || 'Unknown';
     };
 
-    // Update flight data with optimized batching and smooth interpolation
+    // Smooth interpolation animation loop
+    const animateFlights = useCallback(() => {
+        if (!isMapLoaded || !map.current || targetPositions.current.size === 0) {
+            animationFrame.current = requestAnimationFrame(animateFlights);
+            return;
+        }
+
+        const now = Date.now();
+        const elapsed = now - (interpolationStartTime.current || now);
+        const progress = Math.min(elapsed / INTERPOLATION_DURATION, 1);
+        
+        // Easing function for smooth movement (ease-out)
+        const easeProgress = 1 - Math.pow(1 - progress, 2);
+
+        // Interpolate positions for all flights
+        const interpolatedFeatures = [];
+        targetPositions.current.forEach((target, icao24) => {
+            const previous = previousPositions.current.get(icao24);
+            
+            if (!previous) {
+                // No previous position, use target directly
+                interpolatedFeatures.push(createFeature(target, target.longitude, target.latitude));
+                return;
+            }
+
+            // Linear interpolation between previous and target positions
+            const lng = previous.longitude + (target.longitude - previous.longitude) * easeProgress;
+            const lat = previous.latitude + (target.latitude - previous.latitude) * easeProgress;
+            
+            // Smooth heading interpolation (handle 360° wraparound)
+            let headingDiff = target.heading - previous.heading;
+            if (headingDiff > 180) headingDiff -= 360;
+            if (headingDiff < -180) headingDiff += 360;
+            const heading = previous.heading + headingDiff * easeProgress;
+
+            interpolatedFeatures.push(createFeature({
+                ...target,
+                heading: heading
+            }, lng, lat));
+        });
+
+        // Update map with interpolated positions
+        if (map.current.getSource('flights')) {
+            map.current.getSource('flights').setData({
+                type: 'FeatureCollection',
+                features: interpolatedFeatures
+            });
+        }
+
+        // Continue animation
+        animationFrame.current = requestAnimationFrame(animateFlights);
+    }, [isMapLoaded, INTERPOLATION_DURATION]);
+
+    // Helper function to create GeoJSON feature
+    const createFeature = (flight, lng, lat) => {
+        // Use true_track for actual course over ground (movement direction)
+        const actualHeading = typeof flight.true_track === 'number' ? flight.true_track : 
+                            (typeof flight.heading === 'number' ? flight.heading : 0);
+        
+        // Airplane emoji ✈️ naturally points northeast (45°)
+        const adjustedHeading = actualHeading - 45;
+        
+        return {
+            type: 'Feature',
+            properties: {
+                icao24: flight.icao24,
+                callsign: flight.callsign || 'Unknown',
+                origin_country: flight.origin_country || 'Unknown',
+                baro_altitude: flight.baro_altitude,
+                velocity: flight.velocity,
+                vertical_rate: flight.vertical_rate,
+                on_ground: flight.on_ground,
+                position_source: flight.position_source,
+                true_track: flight.true_track,
+                heading: adjustedHeading,
+                timestamp: Date.now()
+            },
+            geometry: {
+                type: 'Point',
+                coordinates: [lng, lat]
+            }
+        };
+    };
+
+    // Start animation loop when map loads
     useEffect(() => {
-        if (!isMapLoaded || !map.current) return;
+        if (!isMapLoaded) return;
+
+        animationFrame.current = requestAnimationFrame(animateFlights);
+
+        return () => {
+            if (animationFrame.current) {
+                cancelAnimationFrame(animationFrame.current);
+            }
+        };
+    }, [isMapLoaded, animateFlights]);
+
+    // Update flight data with smooth interpolation
+    useEffect(() => {
+        if (!isMapLoaded || !map.current || validFlights.length === 0) return;
 
         // Cancel any pending updates
         if (updateFrame.current) {
             cancelAnimationFrame(updateFrame.current);
         }
 
-        // Batch updates using requestAnimationFrame for smooth performance
+        // Update target positions and start new interpolation
         updateFrame.current = requestAnimationFrame(() => {
-            // Convert flights to GeoJSON features with heading data
-            const features = validFlights.map(flight => {
-                // Use true_track for actual course over ground (movement direction)
-                const actualHeading = typeof flight.true_track === 'number' ? flight.true_track : 
-                                    (typeof flight.heading === 'number' ? flight.heading : 0);
+            // Store current positions as previous positions for next update
+            const newPreviousPositions = new Map();
+            const newTargetPositions = new Map();
+
+            validFlights.forEach(flight => {
+                const icao24 = flight.icao24;
                 
-                // Airplane emoji ✈️ naturally points northeast (45°)
-                // For true course 112° (ESE), we need airplane to point ESE
-                // If emoji points northeast (45°), we subtract 45° to align with north (0°)
-                // Then the true course rotation will be applied correctly
-                const adjustedHeading = actualHeading - 45;
-                
-                // Debug logging for orientation verification
-                if (Math.random() < 0.005) { // Log 0.5% of flights
-                    console.log(`Flight ${flight.icao24}: true_track=${flight.true_track}° → display=${adjustedHeading}°`);
+                // Get current target as previous (or use current if first time)
+                const currentTarget = targetPositions.current.get(icao24);
+                if (currentTarget) {
+                    newPreviousPositions.set(icao24, currentTarget);
+                } else {
+                    // First time seeing this flight, no interpolation needed
+                    newPreviousPositions.set(icao24, {
+                        longitude: flight.longitude,
+                        latitude: flight.latitude,
+                        heading: typeof flight.true_track === 'number' ? flight.true_track : 0
+                    });
                 }
-                
-                return {
-                    type: 'Feature',
-                    properties: {
-                        icao24: flight.icao24,
-                        callsign: flight.callsign || 'Unknown',
-                        origin_country: flight.origin_country || 'Unknown',
-                        baro_altitude: flight.baro_altitude,
-                        velocity: flight.velocity,
-                        true_track: flight.true_track, // Keep original for popup
-                        heading: adjustedHeading, // Adjusted heading for display
-                        // Add timestamp for interpolation
-                        timestamp: Date.now()
-                    },
-                    geometry: {
-                        type: 'Point',
-                        coordinates: [flight.longitude, flight.latitude]
-                    }
-                };
+
+                // Set new target position
+                newTargetPositions.set(icao24, {
+                    ...flight,
+                    heading: typeof flight.true_track === 'number' ? flight.true_track : 0
+                });
             });
 
-            // Update the source data with smooth transitions
-            if (map.current.getSource('flights')) {
-                // Enable smooth position interpolation
-                map.current.getSource('flights').setData({
-                    type: 'FeatureCollection',
-                    features: features
-                });
-                
-                // Add smooth transition properties for position interpolation
-                map.current.setPaintProperty('flight-markers', 'text-translate-transition', {
-                    duration: 15000, // Match update interval for smooth movement
-                    delay: 0
-                });
-            }
+            previousPositions.current = newPreviousPositions;
+            targetPositions.current = newTargetPositions;
+            interpolationStartTime.current = Date.now();
         });
     }, [validFlights, isMapLoaded]);
 
