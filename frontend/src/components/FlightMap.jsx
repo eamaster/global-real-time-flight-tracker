@@ -280,8 +280,9 @@ const FlightMap = ({ flights, onValidFlightCountChange }) => {
         const actualHeading = typeof flight.true_track === 'number' ? flight.true_track : 
                             (typeof flight.heading === 'number' ? flight.heading : 0);
         
-        // Airplane emoji ✈️ naturally points northeast (45°)
-        const adjustedHeading = actualHeading - 45;
+        // Airplane emoji ✈️ naturally points to the right (East = 90°)
+        // To align the nose with true_track direction, subtract 90°
+        const adjustedHeading = actualHeading - 90;
         
         return {
             type: 'Feature',
