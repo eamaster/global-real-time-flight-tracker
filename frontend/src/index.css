@@ -24,6 +24,9 @@ body {
   z-index: 1000;
 }
 
+/* Keep header content centered and spaced from map controls */
+.header-top { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+
 /* Scale title on small screens */
 .App-header h1 {
   margin: 6px 0 8px 0;
@@ -44,6 +47,9 @@ body {
   .App-header { padding: 8px; }
   .App-header h1 { font-size: 20px; }
 }
+
+/* Ensure map zoom controls remain clear of header by adding top padding to main area on small screens if needed */
+.main-content { padding-top: 0; }
 
 .main-content {
   flex: 1; /* Grow to fill available space */

@@ -1,7 +1,7 @@
 /* Error banner styling - compact overlay */
 .error-banner {
     position: fixed;
-    top: 90px;
+    top: 100px; /* Sit below header on desktop */
     left: 50%;
     right: auto;
     transform: translateX(-50%);
@@ -12,7 +12,7 @@
     border: 1px solid #bd2130;
     border-radius: 8px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    z-index: 9999;
+    z-index: 900; /* Keep under header so it never covers the search */
     overflow: hidden;
     animation: slideInDown 0.3s ease-out;
     backdrop-filter: blur(8px);
@@ -142,6 +142,9 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
+    max-width: 960px; /* Centered container on large screens */
+    margin: 0 auto;
+    padding: 0 16px; /* 16–24px horizontal padding */
     gap: 20px;
 }
 
@@ -149,6 +152,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    width: 100%;
 }
 
 .search-input {
@@ -158,7 +162,8 @@
     background: rgba(255, 255, 255, 0.1);
     color: white;
     font-size: 14px;
-    min-width: 250px;
+    min-width: 0; /* allow shrinking on small screens */
+    width: 100%;
     transition: all 0.3s ease;
 }
 
@@ -183,6 +188,8 @@
     font-size: 16px;
     cursor: pointer;
     transition: all 0.2s ease;
+    min-width: 44px;     /* Minimum hit-area */
+    min-height: 44px;    /* Minimum hit-area */
 }
 
 .search-button:hover {
@@ -234,7 +241,7 @@
         transform: translateX(-50%);
         width: calc(100% - 16px);
         max-width: 500px;
-        top: 80px;
+        top: 120px; /* Further below header to avoid overlap */
         max-height: 70px;
     }
     
@@ -272,7 +279,7 @@
         transform: translateX(-50%);
         width: calc(100% - 8px);
         max-width: 400px;
-        top: 75px;
+        top: 128px; /* Ensure no overlap on very small phones */
         max-height: 65px;
     }
     
@@ -341,6 +348,8 @@
     .clear-button {
         padding: 10px 12px;
         font-size: 14px;
+        min-width: 44px;
+        min-height: 44px;
     }
 }
 
@@ -349,5 +358,7 @@
     .clear-button {
         padding: 8px 10px;
         font-size: 13px;
+        min-width: 44px;
+        min-height: 44px;
     }
 }
