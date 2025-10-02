@@ -151,7 +151,7 @@
 .search-form {
     display: grid; /* Grid everywhere to avoid overlap */
     align-items: center;
-    grid-template-columns: minmax(0, 1fr) auto auto; /* input + two buttons */
+    grid-template-columns: minmax(0, 1fr) 48px 48px; /* fixed button columns to keep within viewport */
     gap: 8px;
     width: 100%;
 }
@@ -339,6 +339,7 @@
     }
 
     .search-form { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .search-form { grid-template-columns: minmax(0, 1fr) 48px 48px; }
 
     .search-input {
         padding: 10px 12px;

@@ -274,7 +274,17 @@ const App = () => {
         <div className="App">
             <header className="App-header">
                 <div className="header-top">
-                    <h1>Global Real-Time Flight Tracker</h1>
+                    <h1
+                        className="app-title-button"
+                        onClick={() => window.location.reload()}
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Refresh and return to home"
+                        title="Refresh"
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.location.reload(); } }}
+                    >
+                        Global Real-Time Flight Tracker
+                    </h1>
                     <form onSubmit={handleSearch} className="search-form">
                         <input
                             type="text"
