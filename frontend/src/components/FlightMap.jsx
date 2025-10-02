@@ -298,19 +298,22 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
                         <h3>${flight.callsign || 'Unknown Flight'}</h3>
                         <p><strong>ICAO24:</strong> ${flight.icao24}</p>
                         ${flightInfo && flightInfo.estDepartureAirport ? `
-                            <p><strong>From:</strong> ${flightInfo.estDepartureAirport}</p>
-                            <p><strong>To:</strong> ${flightInfo.estArrivalAirport || 'Unknown'}</p>
+                            <p class="route-info"><strong>Route:</strong> ${flightInfo.estDepartureAirport} → ${flightInfo.estArrivalAirport || '?'}</p>
                             <p><strong>Departure:</strong> ${new Date(flightInfo.firstSeen * 1000).toLocaleTimeString()}</p>
                             ${flightInfo.lastSeen ? `<p><strong>Duration:</strong> ${Math.round((flightInfo.lastSeen - flightInfo.firstSeen) / 60)} min</p>` : ''}
-                        ` : '<p class="info-note">📍 Live position only</p>'}
-                        <hr style="border-color: rgba(255,255,255,0.2)">
-                        <p><strong>Origin:</strong> ${flight.origin_country || 'Unknown'}</p>
-                        <p><strong>Aircraft:</strong> ${flight.aircraft_type || 'Unknown'}</p>
+                        ` : '<p class="info-note">📍 Real-time position tracking</p>'}
+                        <hr style="border-color: rgba(0,0,0,0.1); margin: 8px 0">
+                        <p><strong>Origin Country:</strong> ${flight.origin_country || 'Unknown'}</p>
+                        ${flight.aircraft_type && flight.aircraft_type !== 'Unknown' && flight.aircraft_type !== 'No information at all' ? 
+                            `<p><strong>Category:</strong> ${flight.aircraft_type}</p>` : ''}
                         <p><strong>Altitude:</strong> ${flight.altitude_ft ? `${flight.altitude_ft} ft` : 'N/A'}</p>
-                        <p><strong>Speed:</strong> ${flight.speed_kts ? `${flight.speed_kts} kts` : 'N/A'}</p>
-                        <p><strong>Heading:</strong> ${typeof flight.true_track === 'number' ? `${Math.round(flight.true_track)}°` : 'N/A'}</p>
-                        <p><strong>Vertical Rate:</strong> ${flight.vertical_rate ? `${Math.round(flight.vertical_rate)} m/s` : 'N/A'}</p>
-                        ${track && track.path && track.path.length > 1 ? '<p class="success-note">✈️ Flight trail shown on map</p>' : ''}
+                        <p><strong>Speed:</strong> ${flight.speed_kts ? `${flight.speed_kts} kts` : 'N/A'} ${flight.speed_kts ? `(${Math.round(flight.speed_kts * 1.852)} km/h)` : ''}</p>
+                        <p><strong>Heading:</strong> ${typeof flight.true_track === 'number' ? `${Math.round(flight.true_track)}° ${getCompassDirection(flight.true_track)}` : 'N/A'}</p>
+                        <p><strong>Vertical Rate:</strong> ${flight.vertical_rate ? `${Math.round(flight.vertical_rate)} m/s ${flight.vertical_rate > 0 ? '⬆️ Climbing' : flight.vertical_rate < 0 ? '⬇️ Descending' : '➡️ Level'}` : 'N/A'}</p>
+                        <p><strong>Position Source:</strong> ${getPositionSource(flight.position_source)}</p>
+                        ${track && track.path && track.path.length > 1 ? 
+                            `<p class="success-note">✈️ Flight trail shown (${track.path.length} waypoints)</p>` : 
+                            '<p class="info-note">📍 No trail data available</p>'}
                     </div>
                 `;
                 currentPopup.current.setHTML(enhancedContent);
@@ -331,6 +334,14 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             3: 'FLARM'
         };
         return sources[source] || 'Unknown';
+    };
+
+    // Helper function to get compass direction from heading
+    const getCompassDirection = (heading) => {
+        if (typeof heading !== 'number') return '';
+        const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+        const index = Math.round(((heading % 360) / 22.5)) % 16;
+        return `(${directions[index]})`;
     };
 
     // Smooth interpolation animation loop

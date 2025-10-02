@@ -76,11 +76,22 @@
 .info-note {
     color: #64B5F6;
     font-style: italic;
+    font-size: 13px;
 }
 
 .success-note {
     color: #4CAF50;
     font-weight: bold;
+    font-size: 13px;
+}
+
+.route-info {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 8px 0 !important;
+    font-size: 14px;
 }
 
 @keyframes pulse {
