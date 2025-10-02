@@ -24,6 +24,27 @@ body {
   z-index: 1000;
 }
 
+/* Scale title on small screens */
+.App-header h1 {
+  margin: 6px 0 8px 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+@media (max-width: 992px) {
+  .App-header h1 { font-size: 24px; }
+}
+
+@media (max-width: 768px) {
+  .App-header { text-align: left; }
+  .App-header h1 { font-size: 22px; }
+}
+
+@media (max-width: 480px) {
+  .App-header { padding: 8px; }
+  .App-header h1 { font-size: 20px; }
+}
+
 .main-content {
   flex: 1; /* Grow to fill available space */
   display: flex;
