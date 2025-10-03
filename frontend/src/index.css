@@ -17,45 +17,52 @@ body {
 }
 
 .App-header {
-  background-color: #282c34;
-  padding: 10px;
+  background: linear-gradient(135deg, #1e2a38 0%, #2c3e50 100%);
+  padding: 16px 0;
   color: white;
   text-align: center;
   z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* Keep header content centered and spaced from map controls */
-.header-top { max-width: 960px; margin: 0 auto; padding: 0 16px; }
-
-/* Scale title on small screens */
+/* Professional title styling */
 .App-header h1 {
-  margin: 6px 0 8px 0;
-  font-size: 28px;
-  line-height: 1.2;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
 }
 
-/* Make title look clickable when used as refresh/home */
+/* Make title clickable and professional */
 .app-title-button {
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.app-title-button:focus { outline: 2px solid rgba(255,255,255,0.6); outline-offset: 2px; }
 
-@media (max-width: 992px) {
-  .App-header h1 { font-size: 24px; }
+.app-title-button:focus {
+  outline: 2px solid rgba(76, 175, 80, 0.6);
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 
 @media (max-width: 768px) {
-  .App-header { text-align: left; }
-  .App-header h1 { font-size: 22px; }
+  .App-header {
+    padding: 12px 0;
+  }
 }
 
 @media (max-width: 480px) {
-  .App-header { padding: 8px; }
-  .App-header h1 { font-size: 20px; }
+  .App-header {
+    padding: 10px 0;
+  }
 }
 
-/* Ensure map zoom controls remain clear of header by adding top padding to main area on small screens if needed */
-.main-content { padding-top: 0; }
+/* Ensure map zoom controls remain clear */
+.main-content {
+  padding-top: 0;
+}
 
 .main-content {
   flex: 1; /* Grow to fill available space */
