@@ -21,6 +21,8 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
     const INTERPOLATION_DURATION = 15000; // 15 seconds to match update interval
     const currentPopup = useRef(null); // Track current popup
     const [loadingFlightInfo, setLoadingFlightInfo] = useState(false); // Loading state for flight info
+    const liveTrailCoordinates = useRef([]); // Store live trail coordinates for selected flight
+    const selectedFlightIcao = useRef(null); // Track which flight is being followed
 
     // Memoize valid flights to avoid recalculating
     const validFlights = useMemo(() => {
@@ -250,6 +252,8 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
 
         popup.on('close', () => {
             setSelectedFlight(null);
+            selectedFlightIcao.current = null;
+            liveTrailCoordinates.current = [];
             // Clear flight trail
             if (map.current.getSource('flight-trails')) {
                 map.current.getSource('flight-trails').setData({
@@ -278,6 +282,10 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
                     .map(p => [p[2], p[1]]); // [lon, lat]
 
                 if (coordinates.length > 1) {
+                    // Initialize live trail with historical data
+                    liveTrailCoordinates.current = [...coordinates];
+                    selectedFlightIcao.current = flight.icao24;
+                    
                     map.current.getSource('flight-trails').setData({
                         type: 'FeatureCollection',
                         features: [{
@@ -289,6 +297,10 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
                         }]
                     });
                 }
+            } else {
+                // No historical trail, start fresh with current position
+                liveTrailCoordinates.current = [[flight.longitude, flight.latitude]];
+                selectedFlightIcao.current = flight.icao24;
             }
 
             // Update popup with enhanced info
@@ -526,6 +538,42 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             previousPositions.current = newPreviousPositions;
             targetPositions.current = newTargetPositions;
             interpolationStartTime.current = Date.now();
+            
+            // Update live trail for selected flight
+            if (selectedFlightIcao.current) {
+                const selectedFlight = validFlights.find(f => f.icao24 === selectedFlightIcao.current);
+                if (selectedFlight) {
+                    const newCoord = [selectedFlight.longitude, selectedFlight.latitude];
+                    
+                    // Only add if position has changed significantly (avoid duplicates)
+                    const lastCoord = liveTrailCoordinates.current[liveTrailCoordinates.current.length - 1];
+                    if (!lastCoord || 
+                        Math.abs(lastCoord[0] - newCoord[0]) > 0.001 || 
+                        Math.abs(lastCoord[1] - newCoord[1]) > 0.001) {
+                        
+                        liveTrailCoordinates.current.push(newCoord);
+                        
+                        // Keep trail to a reasonable length (last 100 points)
+                        if (liveTrailCoordinates.current.length > 100) {
+                            liveTrailCoordinates.current = liveTrailCoordinates.current.slice(-100);
+                        }
+                        
+                        // Update the trail on the map
+                        if (map.current && map.current.getSource('flight-trails') && liveTrailCoordinates.current.length > 1) {
+                            map.current.getSource('flight-trails').setData({
+                                type: 'FeatureCollection',
+                                features: [{
+                                    type: 'Feature',
+                                    geometry: {
+                                        type: 'LineString',
+                                        coordinates: liveTrailCoordinates.current
+                                    }
+                                }]
+                            });
+                        }
+                    }
+                }
+            }
         });
     }, [validFlights, isMapLoaded, INTERPOLATION_DURATION]);
 
