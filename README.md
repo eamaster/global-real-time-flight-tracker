@@ -59,11 +59,13 @@ cd ../frontend
 npm install
 ```
 
-Create a `.env.local` file in the frontend directory:
+Create a `.env` file in the frontend directory (copy from `.env.example`):
 ```env
 VITE_MAPBOX_TOKEN=your_mapbox_token
 VITE_API_URL=http://localhost:5000
 ```
+
+**Note:** For local development, you can use the provided Mapbox token. The `.env` file is gitignored and will not be committed to the repository.
 
 Start the frontend development server:
 ```bash
