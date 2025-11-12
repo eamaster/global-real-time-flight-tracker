@@ -59,13 +59,11 @@ cd ../frontend
 npm install
 ```
 
-Create a `.env` file in the frontend directory (copy from `.env.example`):
+Create a `.env.local` file in the frontend directory:
 ```env
 VITE_MAPBOX_TOKEN=your_mapbox_token
 VITE_API_URL=http://localhost:5000
 ```
-
-**Note:** For local development, you can use the provided Mapbox token. The `.env` file is gitignored and will not be committed to the repository.
 
 Start the frontend development server:
 ```bash
@@ -115,10 +113,8 @@ The frontend will run on `http://localhost:5173`
 
 2. **Configure Repository Secrets**:
    In your GitHub repository, go to Settings > Secrets and variables > Actions, and add:
-   - `VITE_MAPBOX_TOKEN`: `pk.eyJ1IjoiZWFtYXN0ZXIiLCJhIjoiY21odnk5ajVlMDB6ejJpcjNsMnEwdHF0OCJ9.5jH7Oi18CkoDe-ua75ijyA`
-   - `VITE_API_URL`: Your Cloudflare Worker URL (e.g., `https://global-flight-tracker-api.smah0085.workers.dev`)
-   
-   **Important:** Make sure the `VITE_MAPBOX_TOKEN` secret matches the token in your `frontend/.env` file.
+   - `VITE_MAPBOX_TOKEN`: Your Mapbox access token
+   - `VITE_API_URL`: Your Cloudflare Worker URL
 
 3. **Enable GitHub Pages**:
    - Go to repository Settings > Pages

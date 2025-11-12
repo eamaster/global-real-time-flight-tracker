@@ -48,7 +48,6 @@ jobs:
         # Verify files are created correctly
         ls -la dist/
       env:
-        # Mapbox token - update GitHub Secret VITE_MAPBOX_TOKEN with: pk.eyJ1IjoiZWFtYXN0ZXIiLCJhIjoiY21odnk5ajVlMDB6ejJpcjNsMnEwdHF0OCJ9.5jH7Oi18CkoDe-ua75ijyA
         VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
         VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
