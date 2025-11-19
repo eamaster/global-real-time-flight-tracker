@@ -15,8 +15,8 @@ const getOpenSkyToken = async () => {
         return accessToken;
     }
 
-    const clientId = OPENSKY_CLIENT_ID || 'smah0085-api-client';
-    const clientSecret = OPENSKY_CLIENT_SECRET || 'Dlquai3Apg9q4PZKsqBQooW0R1IYtNys';
+    const clientId = OPENSKY_CLIENT_ID;
+    const clientSecret = OPENSKY_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) {
         console.log('No OpenSky credentials configured, using public API (rate limited)');
@@ -30,7 +30,6 @@ const getOpenSkyToken = async () => {
         params.append('client_secret', clientSecret);
 
         console.log('Getting OAuth2 token from OpenSky...');
-        console.log('Client ID:', clientId);
         
         const response = await fetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
             method: 'POST',
