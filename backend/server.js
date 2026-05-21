@@ -3,15 +3,13 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const flightUtils = require('./lib/flightUtils');
+const openskyApi = require('./lib/openskyApi');
 const { MAX_BBOX_DEGREES } = flightUtils;
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 
-// ---------------------------------------------------------------------------
-// OpenSky API base URL — single source of truth for this file
-// ---------------------------------------------------------------------------
-const OPENSKY_BASE = 'https://opensky-network.org/api';
+const OPENSKY_BASE = openskyApi.OPENSKY_API_BASE;
 
 // ---------------------------------------------------------------------------
 // Middleware
@@ -74,6 +72,24 @@ const openSkyRequest = async (url, timeoutMs = 4000) => {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     return axios.get(url, { headers, timeout: timeoutMs });
 };
+
+const getAuthHeaders = async () => {
+    const token = await getOpenSkyToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const fetchOpenSkyJson = async (url, headers, timeoutMs) => {
+    try {
+        const response = await axios.get(url, { headers, timeout: timeoutMs });
+        return response.data;
+    } catch (error) {
+        const err = new Error(error.message);
+        err.status = error.response?.status;
+        throw err;
+    }
+};
+
+const openSkyClient = { getAuthHeaders, fetchJson: fetchOpenSkyJson };
 
 // ---------------------------------------------------------------------------
 // Helpers delegated to flightUtils
@@ -168,109 +184,28 @@ app.get('/api/flights', async (req, res) => {
     });
 });
 
-// ---------------------------------------------------------------------------
-// GET /api/flight-track?icao24=<hex>
-// Proxies: GET /tracks/all?icao24=<hex>&time=0
-//
-// Per OpenSky API docs:
-//   - time=0 → retrieve the live/current track if the aircraft is airborne
-//   - Response: { icao24, startTime, endTime, callsign, path: [[time,lat,lon,alt,track,onGround],...] }
-//   - path[n][0] = Unix time, [1] = lat, [2] = lon, [3] = baro_altitude,
-//                  [4] = true_track, [5] = on_ground
-// ---------------------------------------------------------------------------
+// GET /api/flight-track — OpenSky /tracks/all (time=0, then firstSeen fallback)
 app.get('/api/flight-track', async (req, res) => {
     const { icao24 } = req.query;
 
-    if (!icao24 || typeof icao24 !== 'string' || !/^[0-9a-f]{6}$/i.test(icao24.trim())) {
-        return res.status(400).json({ message: 'Valid icao24 hex string (6 chars) required.' });
+    if (!openskyApi.isValidIcao24(icao24)) {
+        return res.status(400).json({ message: 'Valid icao24 hex address required.' });
     }
 
-    const icao = icao24.trim().toLowerCase();
-
-    try {
-        // time=0 asks for the live/current track per the OpenSky REST API docs
-        const url = `${OPENSKY_BASE}/tracks/all?icao24=${icao}&time=0`;
-        const response = await openSkyRequest(url, 5000);
-        const data = response.data;
-
-        // Normalise: only forward what the frontend needs
-        // path entries: [time, lat, lon, baro_altitude, true_track, on_ground]
-        const path = Array.isArray(data?.path) ? data.path : [];
-
-        return res.json({
-            icao24:    data?.icao24    ?? icao,
-            callsign:  data?.callsign  ?? null,
-            startTime: data?.startTime ?? null,
-            endTime:   data?.endTime   ?? null,
-            path,                          // pass through as-is; frontend already knows the index layout
-        });
-
-    } catch (error) {
-        if (error.response) {
-            const { status } = error.response;
-            if (status === 401) { accessToken = null; tokenExpiry = 0; }
-            if (status === 404) {
-                // OpenSky returns 404 when no track exists for this aircraft
-                return res.json({ icao24: icao, callsign: null, startTime: null, endTime: null, path: [] });
-            }
-            if (status === 429) {
-                return res.status(429).json({ message: 'Rate limit on track endpoint. Please wait.' });
-            }
-        }
-        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-            return res.status(504).json({ message: 'Track request timed out.' });
-        }
-        console.error(`[/api/flight-track] Error for ${icao}:`, error.message);
-        // Return empty path rather than 500 — the popup can gracefully handle it
-        return res.json({ icao24: icao, callsign: null, startTime: null, endTime: null, path: [] });
-    }
+    const { track } = await openskyApi.fetchOpenSkyTrack(icao24, openSkyClient);
+    return res.json(track);
 });
 
-// ---------------------------------------------------------------------------
-// GET /api/flight-info?icao24=<hex>
-// Proxies: GET /flights/aircraft?icao24=<hex>&begin=<24h_ago>&end=<now>
-//
-// Per OpenSky API docs:
-//   - Returns array of flight records for the aircraft in the given time window
-//   - Each record: { icao24, firstSeen, estDepartureAirport, lastSeen, estArrivalAirport, callsign, ... }
-//   - We return the most recent record (last element of array)
-// ---------------------------------------------------------------------------
+// GET /api/flight-info — OpenSky /flights/aircraft (most recent record)
 app.get('/api/flight-info', async (req, res) => {
     const { icao24 } = req.query;
 
-    if (!icao24 || typeof icao24 !== 'string' || !/^[0-9a-f]{6}$/i.test(icao24.trim())) {
-        return res.status(400).json({ message: 'Valid icao24 hex string (6 chars) required.' });
+    if (!openskyApi.isValidIcao24(icao24)) {
+        return res.status(400).json({ message: 'Valid icao24 hex address required.' });
     }
 
-    const icao = icao24.trim().toLowerCase();
-    const now  = Math.floor(Date.now() / 1000);
-    const begin = now - 86_400; // 24 hours back
-
-    try {
-        const url = `${OPENSKY_BASE}/flights/aircraft?icao24=${icao}&begin=${begin}&end=${now}`;
-        const response = await openSkyRequest(url, 5000);
-        const flights = response.data;
-
-        if (!Array.isArray(flights) || flights.length === 0) {
-            return res.json(null); // no records — frontend handles null gracefully
-        }
-
-        // Return the most recent flight record
-        return res.json(flights[flights.length - 1]);
-
-    } catch (error) {
-        if (error.response) {
-            const { status } = error.response;
-            if (status === 401) { accessToken = null; tokenExpiry = 0; }
-            if (status === 404) return res.json(null);
-            if (status === 429) return res.status(429).json({ message: 'Rate limit on flight-info endpoint.' });
-        }
-        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-            return res.status(504).json({ message: 'Flight-info request timed out.' });
-        }
-        console.error(`[/api/flight-info] Error for ${icao}:`, error.message);
-        return res.json(null); // return null so popup degrades gracefully
-    }
+    const info = await openskyApi.fetchOpenSkyFlightInfo(icao24, openSkyClient);
+    return res.json(info);
 });
 
 // ---------------------------------------------------------------------------

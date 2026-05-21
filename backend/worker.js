@@ -12,6 +12,7 @@ const flightTrackCache = new Map();
 // Filter constants — keep in sync with frontend/src/config/appConfig.js
 // ---------------------------------------------------------------------------
 const flightUtils = require('./lib/flightUtils');
+const openskyApi = require('./lib/openskyApi');
 const { MAX_BBOX_DEGREES } = flightUtils;
 
 // OpenSky is unreachable from many Cloudflare edge POPs; fail fast then use adsb.lol.
@@ -337,121 +338,82 @@ const handleCORS = () => {
     });
 };
 
+const getAuthHeaders = async () => {
+    if (!accessToken || Date.now() >= tokenExpiry) {
+        await getOpenSkyToken();
+    }
+    return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+};
+
+const fetchOpenSkyJson = async (url, headers, timeoutMs) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort('timeout'), timeoutMs);
+    try {
+        const response = await fetch(url, {
+            headers: {
+                Accept: 'application/json',
+                'User-Agent': 'global-flight-tracker-api/1.0',
+                ...headers,
+            },
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+            const err = new Error(`HTTP ${response.status}`);
+            err.status = response.status;
+            throw err;
+        }
+        return await response.json();
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.status) throw error;
+        const err = new Error(error.message || 'fetch_failed');
+        throw err;
+    }
+};
+
+const openSkyClient = { getAuthHeaders, fetchJson: fetchOpenSkyJson };
+
 // Function to fetch flight info (departure/arrival airports)
 const fetchFlightInfo = async (icao24) => {
-    // Check cache first (24 hour TTL)
-    const cacheKey = `info_${icao24}`;
+    const icao = openskyApi.normalizeIcao24(icao24);
+    if (!icao) return null;
+
+    const cacheKey = `info_${icao}`;
     const cached = flightInfoCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 86400000) { // 24 hours
+    if (cached && Date.now() - cached.timestamp < 86400000) {
         return cached.data;
     }
-    
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort('timeout'), 5000); // 5s timeout
-    
-    try {
-        const token = await getOpenSkyToken();
-        if (!token) {
-            clearTimeout(timeout);
-            return null; // No auth, skip
-        }
-        
-        const now = Math.floor(Date.now() / 1000);
-        const begin = now - 86400; // 24 hours ago
-        const end = now;
-        
-        const response = await fetch(
-            `https://opensky-network.org/api/flights/aircraft?icao24=${icao24.toLowerCase()}&begin=${begin}&end=${end}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                signal: controller.signal
-            }
-        );
-        clearTimeout(timeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const flights = await response.json();
-        const latestFlight = flights && flights.length > 0 ? flights[flights.length - 1] : null;
-        
-        // Cache the result
-        flightInfoCache.set(cacheKey, {
-            data: latestFlight,
-            timestamp: Date.now()
-        });
-        
-        // Clean old cache entries (keep last 1000)
-        if (flightInfoCache.size > 1000) {
-            const firstKey = flightInfoCache.keys().next().value;
-            flightInfoCache.delete(firstKey);
-        }
-        
-        return latestFlight;
-    } catch (error) {
-        clearTimeout(timeout);
-        console.error('Error fetching flight info:', error.message);
-        return null;
+
+    const info = await openskyApi.fetchOpenSkyFlightInfo(icao, openSkyClient);
+
+    flightInfoCache.set(cacheKey, { data: info, timestamp: Date.now() });
+    if (flightInfoCache.size > 1000) {
+        flightInfoCache.delete(flightInfoCache.keys().next().value);
     }
+
+    return info;
 };
 
 // Function to fetch flight track/trajectory
 const fetchFlightTrack = async (icao24) => {
-    // Check cache first (1 hour TTL)
-    const cacheKey = `track_${icao24}`;
+    const icao = openskyApi.normalizeIcao24(icao24);
+    if (!icao) return openskyApi.emptyTrackResponse(icao24);
+
+    const cacheKey = `track_${icao}`;
     const cached = flightTrackCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 3600000) { // 1 hour
+    if (cached && Date.now() - cached.timestamp < 3600000) {
         return cached.data;
     }
-    
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort('timeout'), 5000); // 5s timeout
-    
-    try {
-        const token = await getOpenSkyToken();
-        if (!token) {
-            clearTimeout(timeout);
-            return null; // No auth, skip
-        }
-        
-        const response = await fetch(
-            `https://opensky-network.org/api/tracks/all?icao24=${icao24.toLowerCase()}&time=0`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                signal: controller.signal
-            }
-        );
-        clearTimeout(timeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const track = await response.json();
-        
-        // Cache the result
-        flightTrackCache.set(cacheKey, {
-            data: track,
-            timestamp: Date.now()
-        });
-        
-        // Clean old cache entries (keep last 500)
-        if (flightTrackCache.size > 500) {
-            const firstKey = flightTrackCache.keys().next().value;
-            flightTrackCache.delete(firstKey);
-        }
-        
-        return track;
-    } catch (error) {
-        clearTimeout(timeout);
-        console.error('Error fetching flight track:', error.message);
-        return null;
+
+    const { track } = await openskyApi.fetchOpenSkyTrack(icao, openSkyClient);
+
+    flightTrackCache.set(cacheKey, { data: track, timestamp: Date.now() });
+    if (flightTrackCache.size > 500) {
+        flightTrackCache.delete(flightTrackCache.keys().next().value);
     }
+
+    return track;
 };
 
 // Main event listener for Cloudflare Workers
@@ -526,7 +488,7 @@ async function handleRequest(request) {
         
         const flightInfo = await fetchFlightInfo(icao24);
         return new Response(
-            JSON.stringify(flightInfo || {}),
+            JSON.stringify(flightInfo),
             {
                 status: 200,
                 headers: {
@@ -560,7 +522,7 @@ async function handleRequest(request) {
         
         const track = await fetchFlightTrack(icao24);
         return new Response(
-            JSON.stringify(track || {}),
+            JSON.stringify(track),
             {
                 status: 200,
                 headers: {
