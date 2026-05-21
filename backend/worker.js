@@ -8,6 +8,14 @@ let tokenExpiry = 0;
 const flightInfoCache = new Map();
 const flightTrackCache = new Map();
 
+// ---------------------------------------------------------------------------
+// Filter constants — keep in sync with frontend/src/config/appConfig.js
+// ---------------------------------------------------------------------------
+const MIN_ALTITUDE_M = 100;
+const MIN_SPEED_MPS = 20;        // 20 m/s ≈ 39 knots
+const MAX_POSITION_AGE_S = 300;  // 5 minutes
+const MAX_BBOX_DEGREES = 80;
+
 // Function to get OAuth2 token from OpenSky Network
 const getOpenSkyToken = async () => {
     // Check if we have a valid token
@@ -107,9 +115,9 @@ const fetchFlightData = async (request) => {
             const minLon = Math.max(-180, Math.min(180, parseFloat(lon_min)));
             const maxLon = Math.max(-180, Math.min(180, parseFloat(lon_max)));
 
-            // Reject huge boxes (> 80 x 80 degrees) - matches FlightRadar24
+            // Reject huge boxes — matches FlightRadar24 behaviour
             if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLon) || !Number.isFinite(maxLon) ||
-                Math.abs(maxLat - minLat) > 80 || Math.abs(maxLon - minLon) > 80) {
+                Math.abs(maxLat - minLat) > MAX_BBOX_DEGREES || Math.abs(maxLon - minLon) > MAX_BBOX_DEGREES) {
                 return new Response(
                     JSON.stringify({ 
                         message: 'Bounding box too large. Please zoom in further.',
@@ -374,58 +382,103 @@ const generateSampleFlightData = (minLat, maxLat, minLon, maxLon) => {
 
 // Function to process and structure flight data
 const processFlightData = (data) => {
-    const flights = data.states ? data.states
+    const rawStates = data.states ?? [];
+    const rawStateCount = rawStates.length;
+    const now = Math.floor(Date.now() / 1000);
+
+    let invalidCoordCount   = 0;
+    let groundedCount       = 0;
+    let altitudeTooLowCount = 0;
+    let stalePosCount       = 0;
+    let speedTooLowCount    = 0;
+
+    const flights = rawStates
         .filter(state => {
-            // Pre-filter on backend to reduce data transfer (like FlightRadar24)
-            // Filter out grounded aircraft
-            if (state[8] === true) return false;
-            
-            // Filter by altitude (> 100m)
-            const altitude = state[7] || state[13] || 0;
-            if (altitude < 100) return false;
-            
-            // Filter by velocity (> 50 m/s = ~100 knots)
-            if (state[9] !== null && state[9] < 50) return false;
-            
-            // Must have valid coordinates
-            if (!state[5] || !state[6]) return false;
-            
+            // --- Coordinate validation ---
+            // Use Number.isFinite: longitude=0 and latitude=0 are VALID coordinates.
+            // The previous `if (!state[5] || !state[6])` falsy-check was a bug.
+            const lon = parseFloat(state[5]);
+            const lat = parseFloat(state[6]);
+            if (!Number.isFinite(lon) || !Number.isFinite(lat) ||
+                lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                invalidCoordCount++;
+                return false;
+            }
+
+            // Airborne only
+            if (state[8] === true) {
+                groundedCount++;
+                return false;
+            }
+
+            // Minimum altitude (barometric preferred, fall back to geometric)
+            const altitude = state[7] ?? state[13] ?? 0;
+            if (altitude < MIN_ALTITUDE_M) {
+                altitudeTooLowCount++;
+                return false;
+            }
+
+            // Position freshness — only check when time_position is populated
+            if (state[3] != null && (now - state[3]) > MAX_POSITION_AGE_S) {
+                stalePosCount++;
+                return false;
+            }
+
+            // Minimum speed — only when velocity is explicitly known (null = unknown → keep)
+            if (state[9] !== null && state[9] < MIN_SPEED_MPS) {
+                speedTooLowCount++;
+                return false;
+            }
+
             return true;
         })
         .map(state => ({
-            icao24: state[0],
-            callsign: state[1] ? state[1].trim() : null,
-            origin_country: state[2],
-            time_position: state[3],
-            last_contact: state[4],
-            longitude: state[5],
-            latitude: state[6],
-            baro_altitude: state[7],
-            on_ground: state[8],
-            velocity: state[9],
-            true_track: state[10], // heading
-            vertical_rate: state[11],
-            sensors: state[12],
-            geo_altitude: state[13],
-            squawk: state[14],
-            spi: state[15],
+            icao24:          state[0],
+            callsign:        state[1] ? state[1].trim() : null,
+            origin_country:  state[2],
+            time_position:   state[3],
+            last_contact:    state[4],
+            longitude:       parseFloat(state[5]),
+            latitude:        parseFloat(state[6]),
+            baro_altitude:   state[7],
+            on_ground:       state[8],
+            velocity:        state[9],
+            true_track:      state[10],
+            vertical_rate:   state[11],
+            sensors:         state[12],
+            geo_altitude:    state[13],
+            squawk:          state[14],
+            spi:             state[15],
             position_source: state[16],
-            category: state[17] || 0, // Aircraft category (extended field)
-            // Add computed fields for better UX
-            heading: state[10] || 0, // Alias for true_track
-            altitude_ft: state[7] ? Math.round(state[7] * 3.28084) : null, // Convert m to ft
-            speed_kts: state[9] ? Math.round(state[9] * 1.94384) : null, // Convert m/s to knots
-            speed_mph: state[9] ? Math.round(state[9] * 2.23694) : null, // Convert m/s to mph
-            // Aircraft type based on category
-            aircraft_type: getAircraftType(state[17] || 0)
-        })) : [];
+            category:        state[17] ?? 0,
+            // Derived / convenience fields
+            heading:      state[10] ?? 0,
+            altitude_ft:  state[7] != null ? Math.round(state[7] * 3.28084) : null,
+            speed_kts:    state[9] != null ? Math.round(state[9] * 1.94384) : null,
+            speed_mph:    state[9] != null ? Math.round(state[9] * 2.23694) : null,
+            aircraft_type: getAircraftType(state[17] ?? 0),
+        }));
 
     return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
             flights,
             _fallback: data._fallback || false,
-            _message: data._message || null,
-            timestamp: Date.now()
+            _source:   data._source   || null,
+            _message:  data._message  || null,
+            _meta: {
+                rawStateCount,
+                validCoordinateCount: rawStateCount - invalidCoordCount,
+                filteredCount: flights.length,
+                rejections: {
+                    invalidCoord:   invalidCoordCount,
+                    onGround:       groundedCount,
+                    altitudeTooLow: altitudeTooLowCount,
+                    stalePosition:  stalePosCount,
+                    speedTooLow:    speedTooLowCount,
+                },
+                serverTimestamp: Date.now(),
+            },
+            timestamp: Date.now(),
         }),
         {
             status: 200,

@@ -19,11 +19,11 @@ A web application to track flights in real-time using the OpenSky Network API.
   - Aircraft category information
 
 ### Smart Filtering
-- **Realistic Flight Display** - Only shows airborne aircraft (filters out parked/taxiing planes)
-- **Altitude Filter** - Displays flights above 100 meters
-- **Speed Filter** - Shows flights moving faster than 50 m/s (~100 knots)
-- **Stale Data Filter** - Removes positions older than 60 seconds
-- **Bounding Box Limit** - Maximum 80° viewing area for optimal performance
+- **Realistic Flight Display** — Only shows airborne aircraft (filters out parked/taxiing planes)
+- **Altitude Filter** — Displays flights above 100 metres
+- **Speed Filter** — Shows flights faster than 20 m/s (~39 knots); null velocity is kept
+- **Stale Data Filter** — Removes positions older than 5 minutes (300 s)
+- **Bounding Box Limit** — Maximum 80° viewing area; shows "Zoom in to load flights" if exceeded
 
 ### Technical Features
 - **OAuth2 Authentication** - Uses OpenSky Network authenticated API for higher rate limits
@@ -50,6 +50,8 @@ Before setting up the project, you'll need:
 
 ## Local Development Setup
 
+> **Quick start:** Two terminal windows — one for the backend, one for the frontend.
+
 ### 1. Clone the Repository
 ```bash
 git clone <repository-url>
@@ -62,18 +64,27 @@ cd backend
 npm install
 ```
 
-Create a `.env` file in the backend directory:
+Create `backend/.env` (never commit this file — it's in `.gitignore`):
 ```env
+PORT=3001
 OPENSKY_CLIENT_ID=your_opensky_client_id
 OPENSKY_CLIENT_SECRET=your_opensky_client_secret
 ```
 
-Start the backend server:
+Start the backend:
 ```bash
-npm start
+npm run dev        # auto-restarts on file changes (Node 18+)
+# or
+npm start          # single run
 ```
 
-The backend will run on `http://localhost:5000`
+The backend runs on **http://localhost:3001**
+
+Verify it works:
+```bash
+curl "http://localhost:3001/"
+curl "http://localhost:3001/api/flights?lat_min=45&lon_min=5&lat_max=55&lon_max=15"
+```
 
 ### 3. Frontend Setup
 ```bash
@@ -81,18 +92,32 @@ cd ../frontend
 npm install
 ```
 
-Create a `.env.local` file in the frontend directory:
+Create `frontend/.env.local` (never commit this file — it's in `.gitignore`):
 ```env
-VITE_MAPBOX_TOKEN=your_mapbox_token
-VITE_API_URL=http://localhost:5000
+VITE_MAPBOX_TOKEN=your_mapbox_token_here
+
+# Leave VITE_API_URL empty for local dev.
+# The Vite proxy will forward /api/* to http://localhost:3001.
+VITE_API_URL=
+
+VITE_BASE_PATH=/
 ```
 
-Start the frontend development server:
+Start the frontend:
 ```bash
 npm run dev
 ```
 
-The frontend will run on `http://localhost:5173`
+Open **http://localhost:5173** in your browser.
+
+### 4. Expected Behaviour on Localhost
+
+- Map loads centred on Europe at zoom 5 (bbox ~35°×25°, well within the 80° limit)
+- Flights appear within a few seconds if OpenSky returns data for that region
+- Panning / zooming triggers a new fetch on `moveend`
+- Zooming out past the 80° limit shows: *"Zoom in to load flights"*
+- If zero flights are returned the UI shows how many were rejected and why
+- If the backend is not running a clear "Cannot reach backend" error is shown
 
 ## Production Deployment
 
@@ -161,20 +186,27 @@ The frontend will run on `http://localhost:5173`
 
 ## API Endpoints
 
-### Backend Endpoints (Cloudflare Worker)
+Both the local Express server (`server.js`) and the Cloudflare Worker (`worker.js`) expose the **same three endpoints**. All three proxy authenticated requests to OpenSky.
 
-- `GET /api/flights` - Fetch real-time flight data
-  - Query parameters: `lat_min`, `lon_min`, `lat_max`, `lon_max` (bounding box)
-  - Returns: Array of flight state vectors with all 18 OpenSky fields
-  - Caching: 10 seconds
+### `GET /api/flights`
+Real-time state vectors for a geographic bounding box.
+- **Query:** `lat_min`, `lon_min`, `lat_max`, `lon_max` (all required)
+- **OpenSky source:** `GET /api/states/all?lamin=...&lomin=...&lamax=...&lomax=...&extended=1`
+- **Returns:** Filtered/transformed flight array + `_meta` diagnostic object
 
-- `GET /api/flight-info?icao24={icao24}` - Get flight route information
-  - Returns: Departure/arrival airports, times, and flight duration
-  - Caching: 24 hours
+### `GET /api/flight-track?icao24=<hex>`
+Live trajectory waypoints for a single aircraft.
+- **Query:** `icao24` — 6-character lowercase hex ICAO24 address
+- **OpenSky source:** `GET /api/tracks/all?icao24=<hex>&time=0` (`time=0` = live/current track)
+- **Response:** `{ icao24, callsign, startTime, endTime, path[] }`
+  - Each `path` entry: `[time, lat, lon, baro_altitude, true_track, on_ground]`
+- **Note:** OpenSky returns 404 when no track exists — backend returns `{ path: [] }` gracefully
 
-- `GET /api/flight-track?icao24={icao24}` - Get flight trajectory
-  - Returns: Historical flight path with waypoints
-  - Caching: 1 hour
+### `GET /api/flight-info?icao24=<hex>`
+Most recent flight record (departure/arrival airports, times).
+- **Query:** `icao24` — 6-character lowercase hex ICAO24 address
+- **OpenSky source:** `GET /api/flights/aircraft?icao24=<hex>&begin=<24h_ago>&end=<now>`
+- **Returns:** Most recent flight record or `null` if none found
 
 ## Project Structure
 
@@ -215,20 +247,42 @@ global-real-time-flight-tracker/
 
 ## Troubleshooting
 
-### Common Issues
+### Map loads but no flights appear
 
-1. **CORS Errors**: The worker includes CORS headers, but if you encounter issues, check the browser console
-2. **OpenSky API Rate Limits**: 
-   - Free tier: 10 requests/minute
-   - Authenticated: 1,000 requests/minute
-   - The app uses OAuth2 authentication for higher limits
-3. **Mapbox Token**: Ensure your token has the correct scopes for web applications
-4. **Environment Variables**: Make sure all required environment variables are set in both local and production environments
-5. **502 Errors**: See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed troubleshooting
-6. **No Flights Showing**: 
-   - Check if viewing area is too large (max 80°)
-   - Verify OpenSky API credentials are set
-   - Check browser console for error messages
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| "Zoom in to load flights" message | Viewport > 80° | Zoom in — map starts at zoom 5 which is fine |
+| Zero flights, no message | Backend not running | Start `npm run dev` in `backend/` |
+| Zero flights, count shown | All filtered out | Check console `[Flight Filter]` log for rejection counts |
+| Flights appear then vanish | Position age > 5 min | OpenSky feed delay — normal, wait for next update |
+
+### Missing Mapbox token
+
+The map will be blank. Add `VITE_MAPBOX_TOKEN=...` to `frontend/.env.local` and restart `npm run dev`.
+
+### Backend not running / CORS error
+
+Open http://localhost:3001/ in the browser — you should see the API health JSON. If not, the backend is not running. Start it with `npm run dev` in `backend/`.
+
+### OpenSky credentials missing
+
+The backend logs `[Auth] OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET not set`. It will fall back to the anonymous public API which has stricter rate limits. Add credentials to `backend/.env`.
+
+### OpenSky rate limit (429)
+
+The app shows a banner and waits. Anonymous API: ~10 req/min. Authenticated: much higher. Use OAuth2 credentials.
+
+### Area too large (413 / "Zoom in" message)
+
+The bounding box exceeds 80°×80°. Zoom in on the map — the default zoom of 5 always fits.
+
+### CORS errors in browser console
+
+Make sure the backend is running. The Vite proxy (`/api → localhost:3001`) handles CORS in local dev. In production, CORS headers are set in the Cloudflare Worker.
+
+### Diagnostic metadata
+
+Every API response includes `_meta.rejections` showing exactly how many flights were filtered and why. Check the browser Network tab → `api/flights` response body.
 
 ### Logs and Debugging
 

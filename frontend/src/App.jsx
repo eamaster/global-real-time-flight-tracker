@@ -1,28 +1,74 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import FlightMap from './components/FlightMap';
+import {
+    API_URL,
+    MAPBOX_TOKEN,
+    MAX_BBOX_DEGREES,
+    MIN_ALTITUDE_M,
+    MIN_SPEED_MPS,
+    MAX_POSITION_AGE_SECONDS,
+    FETCH_INTERVAL_MS,
+} from './config/appConfig';
 import './App.css';
 
-const App = () => {
-    const [flights, setFlights] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [lastFetch, setLastFetch] = useState(null);
-    const abortControllerRef = useRef(null);
-    const [lastBounds, setLastBounds] = useState(null);
-    const [tooWide, setTooWide] = useState(false);
-    const [retryCount, setRetryCount] = useState(0);
-    const [isRetrying, setIsRetrying] = useState(false);
-    const [validFlightCount, setValidFlightCount] = useState(0); // Track rendered flights
-    const [searchQuery, setSearchQuery] = useState(''); // Search input
-    const [selectedAircraft, setSelectedAircraft] = useState(null); // Selected aircraft to follow
+// ---------------------------------------------------------------------------
+// Status enum for clear, exclusive UI states
+// ---------------------------------------------------------------------------
+const STATUS = {
+    IDLE:           'idle',
+    LOADING:        'loading',
+    SUCCESS:        'success',
+    EMPTY:          'empty',
+    TOO_WIDE:       'too_wide',
+    API_ERROR:      'api_error',
+    MISSING_TOKEN:  'missing_token',
+    MISSING_BACKEND:'missing_backend',
+};
 
-    // Callback to receive valid flight count from FlightMap
+const App = () => {
+    const [flights, setFlights]               = useState([]);
+    const [status, setStatus]                 = useState(STATUS.IDLE);
+    const [errorMessage, setErrorMessage]     = useState(null);
+    const [lastFetch, setLastFetch]           = useState(null);
+    const [validFlightCount, setValidFlightCount] = useState(0);
+    const [searchQuery, setSearchQuery]       = useState('');
+    const [selectedAircraft, setSelectedAircraft] = useState(null);
+    const [retryCount, setRetryCount]         = useState(0);
+    const [isRetrying, setIsRetrying]         = useState(false);
+    // Diagnostic metadata from the last API response
+    const [lastMeta, setLastMeta]             = useState(null);
+
+    const abortControllerRef = useRef(null);
+    const lastBoundsRef      = useRef(null); // Use ref to avoid stale closure in fetchFlights
+
+    // -------------------------------------------------------------------------
+    // Missing Mapbox token — detected immediately on load
+    // -------------------------------------------------------------------------
+    useEffect(() => {
+        if (!MAPBOX_TOKEN) {
+            setStatus(STATUS.MISSING_TOKEN);
+            setErrorMessage('VITE_MAPBOX_TOKEN is not set. Add it to frontend/.env.local.');
+        }
+    }, []);
+
+    // -------------------------------------------------------------------------
+    // Valid flight count from FlightMap (via useEffect in FlightMap, not useMemo)
+    // -------------------------------------------------------------------------
     const handleValidFlightCountChange = useCallback((count) => {
         setValidFlightCount(count);
     }, []);
 
-    // Handle search for specific aircraft
+    // -------------------------------------------------------------------------
+    // Bounds change callback — called by FlightMap on load + moveend
+    // -------------------------------------------------------------------------
+    const handleBoundsChange = useCallback((bounds) => {
+        lastBoundsRef.current = bounds;
+    }, []);
+
+    // -------------------------------------------------------------------------
+    // Search
+    // -------------------------------------------------------------------------
     const handleSearch = useCallback((e) => {
         e.preventDefault();
         const query = searchQuery.trim().toUpperCase();
@@ -30,246 +76,223 @@ const App = () => {
             setSelectedAircraft(null);
             return;
         }
-        
-        // Find matching flight
-        const matching = flights.find(f => 
-            f.icao24?.toUpperCase() === query || 
+        const matching = flights.find(f =>
+            f.icao24?.toUpperCase() === query ||
             f.callsign?.trim().toUpperCase() === query
         );
-        
         if (matching) {
             setSelectedAircraft(matching.icao24);
         } else {
-            setError(`No flight found for "${query}"`);
-            setTimeout(() => setError(null), 3000);
+            setErrorMessage(`No flight found for "${query}"`);
+            setStatus(STATUS.API_ERROR);
+            setTimeout(() => {
+                setErrorMessage(null);
+                setStatus(prev => prev === STATUS.API_ERROR ? STATUS.SUCCESS : prev);
+            }, 3000);
         }
     }, [searchQuery, flights]);
 
+    // -------------------------------------------------------------------------
+    // Fetch flights
+    // -------------------------------------------------------------------------
     const fetchFlights = useCallback(async (isRetry = false) => {
+        const bounds = lastBoundsRef.current;
+        if (!bounds) return;
+
+        const width  = Math.abs(bounds.lon_max - bounds.lon_min);
+        const height = Math.abs(bounds.lat_max - bounds.lat_min);
+
+        if (width > MAX_BBOX_DEGREES || height > MAX_BBOX_DEGREES) {
+            setStatus(STATUS.TOO_WIDE);
+            setErrorMessage(null);
+            return;
+        }
+
+        // Cancel any in-flight request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+
+        setStatus(STATUS.LOADING);
+        setErrorMessage(null);
+
         try {
-            // Require bounds to satisfy backend bbox requirement
-            if (!lastBounds) {
-                return;
-            }
-            
-            // Calculate bounding box dimensions
-            const width = Math.abs(lastBounds.lon_max - lastBounds.lon_min);
-            const height = Math.abs(lastBounds.lat_max - lastBounds.lat_min);
-            
-            // Check if area is too large (80° matches FlightRadar24 behavior)
-            if (width > 80 || height > 80) {
-                setTooWide(true);
-                setError(null);
-                setLoading(false);
-                return;
-            }
-            setTooWide(false);
-            
-            // Cancel any ongoing request
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
-
-            // Create new abort controller for this request
-            abortControllerRef.current = new AbortController();
-
-            setLoading(true);
-            setError(null);
-            
-            // Use production Cloudflare Workers backend URL
-            const apiUrl = import.meta.env.VITE_API_URL || 'https://global-flight-tracker-api.smah0085.workers.dev';
-            const { lat_min, lon_min, lat_max, lon_max } = lastBounds;
+            const { lat_min, lon_min, lat_max, lon_max } = bounds;
             const params = `?lat_min=${lat_min}&lon_min=${lon_min}&lat_max=${lat_max}&lon_max=${lon_max}`;
-            
-            const response = await axios.get(`${apiUrl}/api/flights${params}`, {
-                signal: abortControllerRef.current.signal,
-                timeout: 10000
+            const url    = `${API_URL}/api/flights${params}`;
+
+            const response = await axios.get(url, {
+                signal:  abortControllerRef.current.signal,
+                timeout: 15_000,
             });
-            
-            if (response.data && response.data.flights) {
-                // Filter and process flight data with FlightRadar24-like filtering
-                const validFlights = response.data.flights
+
+            const data = response.data;
+
+            if (data?.flights != null) {
+                // -----------------------------------------------------------
+                // Front-end filter — relaxed, matches server-side constants
+                // -----------------------------------------------------------
+                const now = Math.floor(Date.now() / 1000);
+
+                const validFlights = data.flights
                     .filter(flight => {
-                        // Basic validation
-                        if (!flight || !flight.icao24) return false;
-                        if (typeof flight.latitude !== 'number' || typeof flight.longitude !== 'number') return false;
-                        if (isNaN(flight.latitude) || isNaN(flight.longitude)) return false;
-                        
-                        // Filter out grounded aircraft (critical for realistic display)
+                        if (!flight?.icao24) return false;
+
+                        // Coordinate validity — 0 is valid, use Number.isFinite
+                        if (!Number.isFinite(flight.latitude) || !Number.isFinite(flight.longitude)) return false;
+
+                        // Airborne only
                         if (flight.on_ground === true) return false;
-                        
-                        // Filter by altitude - only show aircraft above 100 meters (like FlightRadar24)
-                        // This removes ground operations, taxiing, and very low altitude flights
-                        const altitude = flight.baro_altitude || flight.geo_altitude || 0;
-                        if (altitude < 100) return false;
-                        
-                        // Filter out stale data (position older than 60 seconds)
-                        const now = Math.floor(Date.now() / 1000);
-                        if (flight.time_position && (now - flight.time_position) > 60) return false;
-                        
-                        // Filter out stationary or very slow aircraft (< 50 m/s = ~100 knots)
-                        // This removes aircraft parked or taxiing slowly
-                        if (flight.velocity !== null && flight.velocity < 50) return false;
-                        
+
+                        // Minimum altitude
+                        const alt = flight.baro_altitude ?? flight.geo_altitude ?? 0;
+                        if (alt < MIN_ALTITUDE_M) return false;
+
+                        // Position freshness — only filter when time_position is populated
+                        if (flight.time_position != null && (now - flight.time_position) > MAX_POSITION_AGE_SECONDS) return false;
+
+                        // Minimum speed — only when velocity is explicitly known
+                        if (flight.velocity !== null && flight.velocity < MIN_SPEED_MPS) return false;
+
                         return true;
                     })
                     .map(flight => ({
                         ...flight,
-                        // Ensure heading property exists (use true_track as heading)
-                        heading: typeof flight.true_track === 'number' ? flight.true_track : 0
+                        heading: typeof flight.true_track === 'number' ? flight.true_track : 0,
                     }));
-                
+
                 setFlights(validFlights);
-                setError(null);
                 setRetryCount(0);
                 setLastFetch(new Date().toLocaleTimeString());
-                
-                // Check if this is fallback data
-                if (response.data._fallback) {
-                    const source = response.data._source || 'unknown';
-                    const message = response.data._message || 'API unavailable. Showing fallback data.';
-                    
-                                    if (source === 'enhanced_sample') {
-                    setError(`Using sample data (OpenSky unavailable)`);
+                setLastMeta(data._meta || null);
+
+                if (validFlights.length === 0) {
+                    // Log diagnostics to console to help debugging
+                    if (data._meta) {
+                        console.info('[Flight Filter] No flights after filtering:', data._meta);
+                    }
+                    setStatus(STATUS.EMPTY);
                 } else {
-                    setError(message);
+                    setStatus(STATUS.SUCCESS);
+                    setErrorMessage(null);
                 }
-                } else {
-                    // Real data fetched successfully - animate out the error banner
-                    const banner = document.querySelector('.error-banner');
-                    if (banner) {
-                        banner.classList.add('hiding');
-                        setTimeout(() => {
-                            setError(null);
-                        }, 300);
+
+                // Surface fallback notice — but never mix fake data with real
+                if (data._fallback) {
+                    const src = data._source || 'unknown';
+                    if (src === 'enhanced_sample') {
+                        setErrorMessage('⚠️ Demo data — OpenSky API unavailable. Showing simulated flights only.');
                     } else {
-                        setError(null);
+                        setErrorMessage(data._message || 'Showing fallback data.');
                     }
                 }
             }
         } catch (err) {
-            if (err.name !== 'CanceledError') {
-                console.error('Fetch error:', err);
-                
-                let errorMessage = 'Error fetching flight data. Please retry.';
-                let shouldRetry = false;
-                
-                if (err.response) {
-                    const { status, data: responseData } = err.response;
-                    
-                    switch (status) {
-                        case 400:
-                            errorMessage = 'Invalid request. Please check your map view.';
-                            break;
-                        case 413:
-                            errorMessage = 'Area too large. Please zoom in.';
-                            setTooWide(true);
-                            break;
-                        case 429:
-                            errorMessage = 'Rate limit exceeded. Please wait.';
-                            // Don't retry rate limit errors immediately
-                            break;
-                        case 502:
-                            errorMessage = 'Service temporarily unavailable. Retrying...';
-                            shouldRetry = true;
-                            break;
-                        case 500:
-                            errorMessage = 'Server error. Retrying...';
-                            shouldRetry = true;
-                            break;
-                        default:
-                            if (status >= 500) {
-                                errorMessage = 'Server error. Retrying...';
-                                shouldRetry = true;
-                            }
-                    }
-                    
-                    // Check if the error response has a custom message
-                    if (responseData && responseData.message) {
-                        errorMessage = responseData.message;
-                    }
-                } else if (err.code === 'ECONNABORTED') {
-                    errorMessage = 'Request timeout. Please retry.';
-                    shouldRetry = true;
-                } else if (err.message) {
-                    errorMessage = err.message;
-                }
-                
-                setError(errorMessage);
-                
-                // Implement retry logic with exponential backoff
-                if (shouldRetry && retryCount < 3 && !isRetry) {
-                    const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s
-                    setIsRetrying(true);
-                    
-                    setTimeout(() => {
-                        setRetryCount(prev => prev + 1);
-                        setIsRetrying(false);
-                        fetchFlights(true); // Retry
-                    }, delay);
-                }
-            }
-        } finally {
-            setLoading(false);
-        }
-    }, [lastBounds, retryCount, isRetrying]);
+            if (err.name === 'CanceledError' || err.name === 'AbortError') return;
 
-    // Subscribe to map bounds updates from FlightMap
+            console.error('[Fetch] Error:', err);
+
+            let msg      = 'Error fetching flight data. Please retry.';
+            let newStatus = STATUS.API_ERROR;
+            let shouldRetry = false;
+
+            if (err.response) {
+                const { status: httpStatus, data: resData } = err.response;
+                if (httpStatus === 400)  msg = 'Invalid map bounds. Try panning.';
+                else if (httpStatus === 413) { msg = 'Area too large. Zoom in to see flights.'; newStatus = STATUS.TOO_WIDE; }
+                else if (httpStatus === 429) msg = 'OpenSky rate limit reached. Please wait 60 seconds.';
+                else if (httpStatus === 502 || httpStatus === 503) { msg = 'Backend temporarily unavailable. Retrying…'; shouldRetry = true; }
+                else if (httpStatus === 504) { msg = 'OpenSky API timed out. Retrying…'; shouldRetry = true; }
+                else if (httpStatus >= 500) { msg = `Server error (${httpStatus}). Retrying…`; shouldRetry = true; }
+                if (resData?.message) msg = resData.message;
+            } else if (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
+                msg = 'Cannot reach the backend. Is the local server running on port 3001?';
+                newStatus = STATUS.MISSING_BACKEND;
+            } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+                msg = 'Request timed out. Retrying…';
+                shouldRetry = true;
+            } else if (err.message) {
+                msg = err.message;
+            }
+
+            setErrorMessage(msg);
+            setStatus(newStatus);
+
+            if (shouldRetry && retryCount < 3 && !isRetry) {
+                const delay = Math.pow(2, retryCount) * 1000;
+                setIsRetrying(true);
+                setTimeout(() => {
+                    setRetryCount(prev => prev + 1);
+                    setIsRetrying(false);
+                    fetchFlights(true);
+                }, delay);
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [retryCount, isRetrying]);
+
+    // -------------------------------------------------------------------------
+    // Start fetching when bounds arrive; re-fetch on bounds change; poll
+    // -------------------------------------------------------------------------
     useEffect(() => {
-        const handler = (e) => setLastBounds(e.detail);
-        window.addEventListener('map-bounds-changed', handler);
-        return () => window.removeEventListener('map-bounds-changed', handler);
+        // handleBoundsChange populates lastBoundsRef; we trigger an initial fetch
+        // when FlightMap signals the first bounds via a custom event.
+        const handleBoundsEvent = (e) => {
+            lastBoundsRef.current = e.detail;
+            setRetryCount(0);
+        };
+        window.addEventListener('map-bounds-changed', handleBoundsEvent);
+        return () => window.removeEventListener('map-bounds-changed', handleBoundsEvent);
     }, []);
 
-    // Start fetching only after we have initial bounds; refresh on bounds changes
     useEffect(() => {
-        if (!lastBounds) return;
-        
-        // Reset retry count when bounds change
-        setRetryCount(0);
-        setError(null);
-        
-        fetchFlights();
-        const interval = setInterval(fetchFlights, 15000); // 15 seconds for smooth updates
+        // Poll on a fixed interval; bounds check happens inside fetchFlights
+        const interval = setInterval(fetchFlights, FETCH_INTERVAL_MS);
         return () => {
             clearInterval(interval);
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
+            abortControllerRef.current?.abort();
         };
-    }, [lastBounds, fetchFlights]);
-
-    // Function to close error banner with animation
-    const closeErrorBanner = useCallback(() => {
-        const banner = document.querySelector('.error-banner');
-        if (banner) {
-            banner.classList.add('hiding');
-            setTimeout(() => {
-                setError(null);
-            }, 300); // Match animation duration
-        } else {
-            setError(null);
-        }
-    }, []);
-
-    // Manual retry function
-    const handleRetry = useCallback(() => {
-        setRetryCount(0);
-        setTooWide(false);
-        // Animate out the error banner before retrying
-        const banner = document.querySelector('.error-banner');
-        if (banner) {
-            banner.classList.add('hiding');
-            setTimeout(() => {
-                setError(null);
-                fetchFlights();
-            }, 300);
-        } else {
-            setError(null);
-            fetchFlights();
-        }
     }, [fetchFlights]);
 
+    // When bounds change, trigger an immediate fetch (debounced in FlightMap)
+    const triggerFetch = useCallback(() => {
+        setRetryCount(0);
+        setErrorMessage(null);
+        fetchFlights();
+    }, [fetchFlights]);
+
+    useEffect(() => {
+        const handler = () => triggerFetch();
+        window.addEventListener('map-bounds-changed', handler);
+        return () => window.removeEventListener('map-bounds-changed', handler);
+    }, [triggerFetch]);
+
+    // -------------------------------------------------------------------------
+    // Manual retry
+    // -------------------------------------------------------------------------
+    const handleRetry = useCallback(() => {
+        setRetryCount(0);
+        setErrorMessage(null);
+        fetchFlights();
+    }, [fetchFlights]);
+
+    const closeErrorBanner = useCallback(() => {
+        setErrorMessage(null);
+        if (status === STATUS.API_ERROR) setStatus(STATUS.SUCCESS);
+    }, [status]);
+
+    // -------------------------------------------------------------------------
+    // Status-derived UI flags
+    // -------------------------------------------------------------------------
+    const isTooWide      = status === STATUS.TOO_WIDE;
+    const isLoading      = status === STATUS.LOADING && flights.length === 0 && !isRetrying;
+    const isEmpty        = status === STATUS.EMPTY;
+    const hasMissingToken = status === STATUS.MISSING_TOKEN;
+
+    // -------------------------------------------------------------------------
+    // Render
+    // -------------------------------------------------------------------------
     return (
         <div className="App">
             <header className="App-header">
@@ -281,7 +304,12 @@ const App = () => {
                         tabIndex={0}
                         aria-label="Refresh and return to home"
                         title="Refresh"
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.location.reload(); } }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                window.location.reload();
+                            }
+                        }}
                     >
                         Global Real-Time Flight Tracker
                     </h1>
@@ -292,17 +320,16 @@ const App = () => {
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="search-input"
+                            aria-label="Search by callsign or ICAO24"
                         />
-                        <button type="submit" className="search-button">🔍</button>
+                        <button type="submit" className="search-button" aria-label="Search">🔍</button>
                         {selectedAircraft && (
-                            <button 
-                                type="button" 
-                                onClick={() => {
-                                    setSelectedAircraft(null);
-                                    setSearchQuery('');
-                                }}
+                            <button
+                                type="button"
+                                onClick={() => { setSelectedAircraft(null); setSearchQuery(''); }}
                                 className="clear-button"
                                 title="Clear search"
+                                aria-label="Clear search"
                             >
                                 ✕
                             </button>
@@ -316,22 +343,54 @@ const App = () => {
                     </small>
                 )}
             </header>
+
             <main className="main-content">
-                {loading && flights.length === 0 && !isRetrying && (
-                    <p className="loading-message">Loading flight data...</p>
+                {/* Missing Mapbox token */}
+                {hasMissingToken && (
+                    <div className="status-overlay">
+                        <div className="status-box status-error">
+                            <span className="status-icon">🔑</span>
+                            <div>
+                                <strong>Mapbox token missing</strong>
+                                <p>Add <code>VITE_MAPBOX_TOKEN=your_token</code> to <code>frontend/.env.local</code> and restart the dev server.</p>
+                                <p>Get a free token at <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer" style={{color:'#7dd3fc'}}>account.mapbox.com</a></p>
+                            </div>
+                        </div>
+                    </div>
                 )}
+
+                {/* Loading spinner */}
+                {isLoading && (
+                    <p className="loading-message">Loading flight data…</p>
+                )}
+
+                {/* Retrying */}
                 {isRetrying && (
-                    <p className="loading-message">Retrying... (Attempt {retryCount + 1}/3)</p>
+                    <p className="loading-message">Retrying… (Attempt {retryCount}/3)</p>
                 )}
-                {tooWide && (
-                    <p className="error-message">Area too large. Please zoom in to see flights.</p>
+
+                {/* Area too wide */}
+                {isTooWide && (
+                    <p className="error-message">🔍 Zoom in to load flights — the current area exceeds {MAX_BBOX_DEGREES}°.</p>
                 )}
-                {error && (
+
+                {/* Zero flights (but API succeeded) */}
+                {isEmpty && !isTooWide && (
+                    <p className="loading-message" style={{color:'#fbbf24'}}>
+                        No flights found in this area.
+                        {lastMeta && (
+                            <> ({lastMeta.rawStateCount} raw → {lastMeta.filteredCount} after filters)</>
+                        )}
+                        {' '}Try another region or zoom in/out slightly.
+                    </p>
+                )}
+
+                {/* Error / backend missing banner */}
+                {errorMessage && (
                     <div
                         className="error-banner"
                         aria-live="polite"
                         role="alert"
-                        aria-label="Error notification"
                     >
                         <div className="error-content">
                             <button
@@ -343,10 +402,8 @@ const App = () => {
                                 ×
                             </button>
                             <div className="error-icon">⚠️</div>
-                            <div className="error-text">
-                                {error}
-                            </div>
-                            {retryCount < 3 && !tooWide && (
+                            <div className="error-text">{errorMessage}</div>
+                            {status === STATUS.API_ERROR && retryCount < 3 && (
                                 <button
                                     onClick={handleRetry}
                                     className="retry-button"
@@ -354,10 +411,7 @@ const App = () => {
                                     aria-label="Retry fetching flight data"
                                 >
                                     {isRetrying ? (
-                                        <>
-                                            <span className="spinner"></span>
-                                            Retrying...
-                                        </>
+                                        <><span className="spinner" />Retrying…</>
                                     ) : (
                                         'Retry'
                                     )}
@@ -366,24 +420,12 @@ const App = () => {
                         </div>
                     </div>
                 )}
-                {flights && flights.length >= 0 ? (
-                    <FlightMap 
-                        flights={flights} 
-                        onValidFlightCountChange={handleValidFlightCountChange}
-                        selectedAircraft={selectedAircraft}
-                    />
-                ) : (
-                    <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        height: '100%',
-                        color: '#666',
-                        fontSize: '16px'
-                    }}>
-                        Loading map...
-                    </div>
-                )}
+
+                <FlightMap
+                    flights={flights}
+                    onValidFlightCountChange={handleValidFlightCountChange}
+                    selectedAircraft={selectedAircraft}
+                />
             </main>
         </div>
     );

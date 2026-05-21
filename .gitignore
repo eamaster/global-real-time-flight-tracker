@@ -6,12 +6,19 @@ node_modules/
 dist/
 build/
 
-# Environment variables
+# Environment variables — never commit real .env files
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+# Backend-specific env (contains secrets)
+backend/.env
+
+# Credential / secret JSON files — NEVER commit these
+credentials*.json
+*.secret.json
+"credentials (1).json"
 
 # Logs
 npm-debug.log*

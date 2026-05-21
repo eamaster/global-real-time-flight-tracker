@@ -1,16 +1,23 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import mapboxgl from 'mapbox-gl';
+import {
+    MAPBOX_TOKEN,
+    API_URL,
+    DEFAULT_CENTER,
+    DEFAULT_ZOOM,
+    BOUNDS_DEBOUNCE_MS,
+} from '../config/appConfig';
 import './FlightMap.css';
 
-// Set the Mapbox access token
-mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
+// Set the Mapbox access token from centralised config
+mapboxgl.accessToken = MAPBOX_TOKEN;
 
 const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
     const mapContainer = useRef(null);
     const map = useRef(null);
-    const [lng, setLng] = useState(10);
-    const [lat, setLat] = useState(45);
-    const [zoom, setZoom] = useState(2);
+    const [lng, setLng] = useState(DEFAULT_CENTER.lng);
+    const [lat, setLat] = useState(DEFAULT_CENTER.lat);
+    const [zoom, setZoom] = useState(DEFAULT_ZOOM);
     const [isMapLoaded, setIsMapLoaded] = useState(false);
     const [selectedFlight, setSelectedFlight] = useState(null);
     const updateFrame = useRef(null);
@@ -26,25 +33,26 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
 
     // Memoize valid flights to avoid recalculating
     const validFlights = useMemo(() => {
-        const filtered = flights.filter(flight => 
-            flight && 
-            flight.icao24 && 
-            typeof flight.latitude === 'number' && 
+        return flights.filter(flight =>
+            flight &&
+            flight.icao24 &&
+            typeof flight.latitude  === 'number' &&
             typeof flight.longitude === 'number' &&
-            !isNaN(flight.latitude) && 
+            !isNaN(flight.latitude)  &&
             !isNaN(flight.longitude) &&
-            Math.abs(flight.latitude) <= 90 &&
+            Math.abs(flight.latitude)  <= 90  &&
             Math.abs(flight.longitude) <= 180 &&
             typeof flight.heading === 'number'
         );
-        
-        // Notify parent component about valid flight count
+    }, [flights]);
+
+    // Notify parent of valid flight count via useEffect (NOT inside useMemo —
+    // calling a state-setter during render is a React rule violation).
+    useEffect(() => {
         if (onValidFlightCountChange) {
-            onValidFlightCountChange(filtered.length);
+            onValidFlightCountChange(validFlights.length);
         }
-        
-        return filtered;
-    }, [flights, onValidFlightCountChange]);
+    }, [validFlights.length, onValidFlightCountChange]);
 
     useEffect(() => {
         if (map.current) return; // initialize map only once
@@ -52,14 +60,13 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
         map.current = new mapboxgl.Map({
             container: mapContainer.current,
             style: 'mapbox://styles/mapbox/navigation-night-v1',
-            center: [lng, lat],
-            zoom: zoom,
-            // Performance optimizations for large datasets
+            center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
+            zoom: DEFAULT_ZOOM,   // zoom 5 → bbox ~35°×25°, within the 80° limit
             antialias: false,
             preserveDrawingBuffer: false,
             renderWorldCopies: false,
             maxZoom: 12,
-            minZoom: 1
+            minZoom: 1,
         });
 
         map.current.on('load', () => {
@@ -164,37 +171,29 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             setIsMapLoaded(true);
         });
 
-        // Throttle move events for better performance and emit bounds for bbox querying
-        // Use longer delay (500ms) to prevent excessive API calls during pan/zoom
-        let moveTimeout;
-        let lastBoundsUpdate = 0;
-        const MIN_UPDATE_INTERVAL = 500; // Minimum 500ms between bound updates
-        
-        map.current.on('move', () => {
-            if (moveTimeout) clearTimeout(moveTimeout);
-            moveTimeout = setTimeout(() => {
-                const now = Date.now();
-                // Only update if enough time has passed since last update
-                if (now - lastBoundsUpdate < MIN_UPDATE_INTERVAL) {
-                    return;
-                }
-                lastBoundsUpdate = now;
-                
-            setLng(map.current.getCenter().lng.toFixed(4));
-            setLat(map.current.getCenter().lat.toFixed(4));
-            setZoom(map.current.getZoom().toFixed(2));
-            try {
-                const b = map.current.getBounds();
-                const detail = {
-                    lat_min: b.getSouth(),
-                    lon_min: b.getWest(),
-                    lat_max: b.getNorth(),
-                    lon_max: b.getEast()
-                };
-                window.dispatchEvent(new CustomEvent('map-bounds-changed', { detail }));
-            } catch (_) {}
-            }, 500); // Increased from 100ms to 500ms for better throttling
-        });
+        // Emit bounds on moveend (debounced) — much less API chatter than on 'move'
+        let boundsDebounceTimer = null;
+        const emitBounds = () => {
+            if (boundsDebounceTimer) clearTimeout(boundsDebounceTimer);
+            boundsDebounceTimer = setTimeout(() => {
+                if (!map.current) return;
+                try {
+                    const b = map.current.getBounds();
+                    const detail = {
+                        lat_min: b.getSouth(),
+                        lon_min: b.getWest(),
+                        lat_max: b.getNorth(),
+                        lon_max: b.getEast(),
+                    };
+                    window.dispatchEvent(new CustomEvent('map-bounds-changed', { detail }));
+                    setLng(map.current.getCenter().lng.toFixed(4));
+                    setLat(map.current.getCenter().lat.toFixed(4));
+                    setZoom(map.current.getZoom().toFixed(2));
+                } catch (_) {}
+            }, BOUNDS_DEBOUNCE_MS);
+        };
+
+        map.current.on('moveend', emitBounds);
 
         // Add navigation control
         map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
@@ -225,24 +224,26 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
         }
 
         // Initial popup with basic info
+        const callsignSafe = (flight.callsign || 'Unknown Flight').replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]));
+        const countrySafe  = (flight.origin_country || 'Unknown').replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]));
+
         let popupContent = `
             <div class="flight-popup">
-                <h3>${flight.callsign || 'Unknown Flight'}</h3>
+                <h3>${callsignSafe}</h3>
                 <p><strong>ICAO24:</strong> ${flight.icao24}</p>
-                <p><strong>Origin:</strong> ${flight.origin_country || 'Unknown'}</p>
-                <p><strong>Aircraft Type:</strong> ${flight.aircraft_type || 'Unknown'}</p>
+                <p><strong>Origin:</strong> ${countrySafe}</p>
                 <p><strong>Altitude:</strong> ${flight.altitude_ft ? `${flight.altitude_ft} ft` : (flight.baro_altitude ? `${Math.round(flight.baro_altitude)}m` : 'N/A')}</p>
                 <p><strong>Speed:</strong> ${flight.speed_kts ? `${flight.speed_kts} kts` : 'N/A'}</p>
                 <p><strong>True Course:</strong> ${typeof flight.true_track === 'number' ? `${Math.round(flight.true_track)}°` : 'N/A'}</p>
                 <p class="loading-info">⏳ Loading flight route...</p>
-                </div>
-            `;
+            </div>
+        `;
 
-        const popup = new mapboxgl.Popup({ 
+        const popup = new mapboxgl.Popup({
             offset: 25,
             closeButton: true,
             closeOnClick: true,
-            maxWidth: '350px'
+            maxWidth: '350px',
         })
         .setLngLat([flight.longitude, flight.latitude])
         .setHTML(popupContent)
@@ -255,25 +256,23 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             selectedFlightIcao.current = null;
             liveTrailCoordinates.current = [];
             // Clear flight trail
-            if (map.current.getSource('flight-trails')) {
+            if (map.current?.getSource('flight-trails')) {
                 map.current.getSource('flight-trails').setData({
                     type: 'FeatureCollection',
-                    features: []
+                    features: [],
                 });
             }
         });
 
-        // Fetch flight info and track in parallel
+        // Fetch flight info and track in parallel — failures are non-fatal
         try {
-            const apiUrl = import.meta.env.VITE_API_URL || 'https://global-flight-tracker-api.smah0085.workers.dev';
-            
             const [flightInfoRes, trackRes] = await Promise.all([
-                fetch(`${apiUrl}/api/flight-info?icao24=${flight.icao24}`).catch(() => null),
-                fetch(`${apiUrl}/api/flight-track?icao24=${flight.icao24}`).catch(() => null)
+                fetch(`${API_URL}/api/flight-info?icao24=${flight.icao24}`).catch(() => null),
+                fetch(`${API_URL}/api/flight-track?icao24=${flight.icao24}`).catch(() => null),
             ]);
 
-            const flightInfo = flightInfoRes ? await flightInfoRes.json() : null;
-            const track = trackRes ? await trackRes.json() : null;
+            const flightInfo = flightInfoRes?.ok ? await flightInfoRes.json().catch(() => null) : null;
+            const track      = trackRes?.ok      ? await trackRes.json().catch(() => null)      : null;
 
             // Draw flight trail if available
             if (track && track.path && track.path.length > 0) {
