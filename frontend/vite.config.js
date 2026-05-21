@@ -8,10 +8,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   // Base path:
-  //   - Localhost / custom domain: '/'
-  //   - GitHub Pages subpath:      '/global-real-time-flight-tracker/'
-  // Set VITE_BASE_PATH in your .env.local to override.
-  const base = env.VITE_BASE_PATH || '/'
+  //   - GitHub Pages subpath (default in GitHub Actions CI): '/global-real-time-flight-tracker/'
+  //   - Localhost / custom root domains:                       '/'
+  const base = env.VITE_BASE_PATH || (process.env.GITHUB_ACTIONS === 'true' ? '/global-real-time-flight-tracker/' : '/')
 
   return {
     plugins: [react()],
