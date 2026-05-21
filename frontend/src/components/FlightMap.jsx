@@ -12,6 +12,15 @@ import {
     hasDrawableTrail,
     getTrailStatusMessage,
     trailStatusClass,
+    normalizeIcao24,
+    recordFlightPositions,
+    getRecordedTrail,
+    mergeTrailCoordinates,
+    MIN_TRAIL_SEGMENT_DEGREES,
+    formatAltitude,
+    formatSpeed,
+    formatHeading,
+    formatSpeedKmh,
 } from '../utils/trackUtils';
 import './FlightMap.css';
 
@@ -34,9 +43,14 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
     const INTERPOLATION_DURATION = 15000; // 15 seconds to match update interval
     const currentPopup = useRef(null); // Track current popup
     const [loadingFlightInfo, setLoadingFlightInfo] = useState(false); // Loading state for flight info
-    const liveTrailCoordinates = useRef([]); // Store live trail coordinates for selected flight
-    const selectedFlightIcao = useRef(null); // Track which flight is being followed
+    const liveTrailCoordinates = useRef([]);
+    const selectedFlightIcao = useRef(null);
     const historicalTrailWaypointCount = useRef(0);
+    const flightPositionHistory = useRef(new Map());
+    const validFlightsRef = useRef([]);
+    const showEnhancedPopupRef = useRef(null);
+
+    validFlightsRef.current = validFlights;
 
     // Memoize valid flights to avoid recalculating
     const validFlights = useMemo(() => {
@@ -60,6 +74,11 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             onValidFlightCountChange(validFlights.length);
         }
     }, [validFlights.length, onValidFlightCountChange]);
+
+    // Accumulate poll snapshots so trails are available before an aircraft is clicked.
+    useEffect(() => {
+        recordFlightPositions(flightPositionHistory.current, validFlights);
+    }, [validFlights]);
 
     useEffect(() => {
         if (map.current) return; // initialize map only once
@@ -148,16 +167,7 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
                     'text-opacity': 1
                 }
             });
-            // Add click handler for flight details with enhanced info and trails
-            map.current.on('click', 'flight-markers', async (e) => {
-                const flight = e.features[0].properties;
-                const coords = e.features[0].geometry.coordinates;
-                await showEnhancedPopup({
-                    ...flight,
-                    latitude: coords[1],
-                    longitude: coords[0]
-                });
-            });
+            // Click handler registered in a separate effect (avoids stale closures).
 
             // Change cursor on hover
             map.current.on('mouseenter', 'flight-markers', () => {
@@ -222,6 +232,7 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
         const status = {
             historicalWaypointCount: historicalTrailWaypointCount.current,
             liveWaypointCount: liveTrailCoordinates.current.length,
+            apiWaypointCount: historicalTrailWaypointCount.current,
         };
         statusEl.className = trailStatusClass(status);
         statusEl.textContent = getTrailStatusMessage(status);
@@ -240,6 +251,9 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
 
     // Enhanced popup with flight info and trail
     const showEnhancedPopup = useCallback(async (flight) => {
+        const icao = normalizeIcao24(flight?.icao24);
+        if (!icao) return;
+
         setSelectedFlight(flight);
         setLoadingFlightInfo(true);
 
@@ -300,22 +314,27 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             const flightInfo = flightInfoRes?.ok ? await flightInfoRes.json().catch(() => null) : null;
             const track      = trackRes?.ok      ? await trackRes.json().catch(() => null)      : null;
             const trackPath  = Array.isArray(track?.path) ? track.path : [];
-            const historicalCoordinates = trackPathToCoordinates(trackPath);
+            const apiCoordinates = trackPathToCoordinates(trackPath);
+            const polledTrail = getRecordedTrail(flightPositionHistory.current, icao);
+            const mergedCoordinates = mergeTrailCoordinates(apiCoordinates, polledTrail, [
+                [flight.longitude, flight.latitude],
+            ]);
             historicalTrailWaypointCount.current = trackPath.length;
 
-            // Draw historical trail, or seed live trail from current position
-            if (hasDrawableTrail(historicalCoordinates)) {
-                liveTrailCoordinates.current = [...historicalCoordinates];
-                selectedFlightIcao.current = flight.icao24;
-                setFlightTrailOnMap(historicalCoordinates);
+            if (hasDrawableTrail(mergedCoordinates)) {
+                liveTrailCoordinates.current = [...mergedCoordinates];
+                selectedFlightIcao.current = icao;
+                setFlightTrailOnMap(mergedCoordinates);
             } else {
                 liveTrailCoordinates.current = [[flight.longitude, flight.latitude]];
-                selectedFlightIcao.current = flight.icao24;
+                selectedFlightIcao.current = icao;
             }
 
+            const heading = formatHeading(flight);
             const trailStatus = {
-                historicalWaypointCount: historicalTrailWaypointCount.current,
+                apiWaypointCount: apiCoordinates.length,
                 liveWaypointCount: liveTrailCoordinates.current.length,
+                historicalWaypointCount: trackPath.length,
             };
 
             // Update popup with enhanced info
@@ -333,9 +352,9 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
                         <p><strong>Origin Country:</strong> ${flight.origin_country || 'Unknown'}</p>
                         ${flight.aircraft_type && flight.aircraft_type !== 'Unknown' && flight.aircraft_type !== 'No information at all' ? 
                             `<p><strong>Category:</strong> ${flight.aircraft_type}</p>` : ''}
-                        <p><strong>Altitude:</strong> ${flight.altitude_ft ? `${flight.altitude_ft} ft` : 'N/A'}</p>
-                        <p><strong>Speed:</strong> ${flight.speed_kts ? `${flight.speed_kts} kts` : 'N/A'} ${flight.speed_kts ? `(${Math.round(flight.speed_kts * 1.852)} km/h)` : ''}</p>
-                        <p><strong>Heading:</strong> ${typeof flight.true_track === 'number' ? `${Math.round(flight.true_track)}° ${getCompassDirection(flight.true_track)}` : 'N/A'}</p>
+                        <p><strong>Altitude:</strong> ${formatAltitude(flight)}</p>
+                        <p><strong>Speed:</strong> ${formatSpeed(flight)}${formatSpeedKmh(flight) != null ? ` (${formatSpeedKmh(flight)} km/h)` : ''}</p>
+                        <p><strong>Heading:</strong> ${heading != null ? `${Math.round(heading)}° ${getCompassDirection(heading)}` : 'N/A'}</p>
                         <p><strong>Vertical Rate:</strong> ${flight.vertical_rate ? `${Math.round(flight.vertical_rate)} m/s ${flight.vertical_rate > 0 ? '⬆️ Climbing' : flight.vertical_rate < 0 ? '⬇️ Descending' : '➡️ Level'}` : 'N/A'}</p>
                         <p><strong>Position Source:</strong> ${getPositionSource(flight.position_source)}</p>
                         <p class="${trailStatusClass(trailStatus)}" data-trail-status>${getTrailStatusMessage(trailStatus)}</p>
@@ -349,6 +368,30 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             setLoadingFlightInfo(false);
         }
     }, [setFlightTrailOnMap, updateTrailStatusInPopup]);
+
+    showEnhancedPopupRef.current = showEnhancedPopup;
+
+    // Register marker click handler with refs so it always sees latest flights/popup logic.
+    useEffect(() => {
+        if (!isMapLoaded || !map.current) return;
+
+        const onMarkerClick = async (e) => {
+            const icao = normalizeIcao24(e.features?.[0]?.properties?.icao24);
+            if (!icao) return;
+
+            const fullFlight = validFlightsRef.current.find(
+                (f) => normalizeIcao24(f.icao24) === icao
+            );
+            if (fullFlight) {
+                await showEnhancedPopupRef.current?.(fullFlight);
+            }
+        };
+
+        map.current.on('click', 'flight-markers', onMarkerClick);
+        return () => {
+            map.current?.off('click', 'flight-markers', onMarkerClick);
+        };
+    }, [isMapLoaded]);
 
     // Helper function to get position source description
     const getPositionSource = (source) => {
@@ -436,13 +479,17 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
                         callsign: flight.callsign || 'Unknown',
                         origin_country: flight.origin_country || 'Unknown',
                         baro_altitude: flight.baro_altitude,
+                        geo_altitude: flight.geo_altitude,
+                        altitude_ft: flight.altitude_ft,
                         velocity: flight.velocity,
-                vertical_rate: flight.vertical_rate,
-                on_ground: flight.on_ground,
-                position_source: flight.position_source,
-                true_track: flight.true_track,
-                heading: adjustedHeading,
-                        timestamp: Date.now()
+                        speed_kts: flight.speed_kts,
+                        vertical_rate: flight.vertical_rate,
+                        on_ground: flight.on_ground,
+                        position_source: flight.position_source,
+                        true_track: flight.true_track,
+                        aircraft_type: flight.aircraft_type,
+                        heading: adjustedHeading,
+                        timestamp: Date.now(),
                     },
                     geometry: {
                         type: 'Point',
@@ -554,17 +601,21 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             
             // Update live trail for selected flight
             if (selectedFlightIcao.current) {
-                const selectedFlight = validFlights.find(f => f.icao24 === selectedFlightIcao.current);
+                const selectedIcao = normalizeIcao24(selectedFlightIcao.current);
+                const selectedFlight = validFlights.find(
+                    (f) => normalizeIcao24(f.icao24) === selectedIcao
+                );
                 if (selectedFlight) {
                     const newCoord = [selectedFlight.longitude, selectedFlight.latitude];
                     
-                    // Only add if position has changed significantly (avoid duplicates)
                     const lastCoord = liveTrailCoordinates.current[liveTrailCoordinates.current.length - 1];
-                    if (!lastCoord || 
-                        Math.abs(lastCoord[0] - newCoord[0]) > 0.001 || 
-                        Math.abs(lastCoord[1] - newCoord[1]) > 0.001) {
-                        
+                    if (
+                        !lastCoord ||
+                        Math.abs(lastCoord[0] - newCoord[0]) > MIN_TRAIL_SEGMENT_DEGREES ||
+                        Math.abs(lastCoord[1] - newCoord[1]) > MIN_TRAIL_SEGMENT_DEGREES
+                    ) {
                         liveTrailCoordinates.current.push(newCoord);
+                        recordFlightPositions(flightPositionHistory.current, [selectedFlight]);
                         
                         // Keep trail to a reasonable length (last 100 points)
                         if (liveTrailCoordinates.current.length > 100) {
