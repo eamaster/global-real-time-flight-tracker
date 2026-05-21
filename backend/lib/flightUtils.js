@@ -134,6 +134,99 @@ const processFlightStates = (rawStates, now) => {
     };
 };
 
+/** Max radius (nautical miles) supported by api.adsb.lol point queries. */
+const ADSB_LOL_MAX_RADIUS_NM = 250;
+
+/**
+ * Compute center point and search radius (nm) for an adsb.lol query that covers a bbox.
+ */
+const bboxCenterAndRadiusNm = (minLat, maxLat, minLon, maxLon) => {
+    const centerLat = (minLat + maxLat) / 2;
+    const centerLon = (minLon + maxLon) / 2;
+    const latNm = (Math.abs(maxLat - minLat) / 2) * 60;
+    const lonNm = (Math.abs(maxLon - minLon) / 2) * 60 * Math.cos((centerLat * Math.PI) / 180);
+    const radiusNm = Math.min(ADSB_LOL_MAX_RADIUS_NM, Math.max(25, Math.ceil(Math.sqrt(latNm * latNm + lonNm * lonNm))));
+    return { centerLat, centerLon, radiusNm };
+};
+
+/**
+ * Convert one adsb.lol aircraft record into an OpenSky-style state vector array
+ * so we can reuse processFlightStates().
+ */
+const adsbLolToOpenSkyState = (ac, now) => {
+    const lat = ac?.lat;
+    const lon = ac?.lon;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    const onGround = ac.alt_baro === 'ground' || ac.alt_baro === 0;
+    const baroAltM = typeof ac.alt_baro === 'number' ? ac.alt_baro * 0.3048 : null;
+    const geoAltM  = typeof ac.alt_geom === 'number' ? ac.alt_geom * 0.3048 : null;
+    const speedKts = typeof ac.gs === 'number' ? ac.gs : null;
+    const velocity = speedKts != null ? speedKts * 0.514444 : null;
+    const track = typeof ac.track === 'number'
+        ? ac.track
+        : (typeof ac.true_heading === 'number' ? ac.true_heading : null);
+    const seenPos = ac.seen_pos ?? ac.seen ?? 0;
+    const timePosition = now - Math.floor(seenPos);
+
+    return [
+        (ac.hex || '').toLowerCase(),
+        ac.flight ? ac.flight.trim() : null,
+        null,
+        timePosition,
+        timePosition,
+        lon,
+        lat,
+        baroAltM,
+        onGround,
+        velocity,
+        track,
+        typeof ac.baro_rate === 'number' ? ac.baro_rate / 196.85 : null,
+        [],
+        geoAltM,
+        ac.squawk || null,
+        ac.spi === 1,
+        0,
+        0,
+    ];
+};
+
+/**
+ * Build a flights API payload from adsb.lol data filtered to the requested bbox.
+ */
+const buildAdsbLolResponse = (aircraft, minLat, maxLat, minLon, maxLon) => {
+    const now = Math.floor(Date.now() / 1000);
+    const inBbox = (ac) =>
+        Number.isFinite(ac?.lat) && Number.isFinite(ac?.lon) &&
+        ac.lat >= minLat && ac.lat <= maxLat &&
+        ac.lon >= minLon && ac.lon <= maxLon;
+
+    const rawStates = (aircraft || [])
+        .filter(inBbox)
+        .map((ac) => adsbLolToOpenSkyState(ac, now))
+        .filter(Boolean);
+
+    const { flights, stats } = processFlightStates(rawStates, now);
+
+    return {
+        flights,
+        _fallback: false,
+        _source: 'adsb_lol',
+        _message: null,
+        _meta: {
+            rawStateCount: rawStates.length,
+            validCoordinateCount: rawStates.length - stats.invalidCoord,
+            filteredCount: flights.length,
+            rejections: stats,
+            bbox: { minLat, minLon, maxLat, maxLon },
+            authUsed: false,
+            sourceTimestamp: now,
+            serverTimestamp: Date.now(),
+        },
+        timestamp: Date.now(),
+    };
+};
+
 /**
  * Generates structured fallback flight response containing simulated flight states.
  */
@@ -229,9 +322,13 @@ module.exports = {
     MIN_SPEED_MPS,
     MAX_POSITION_AGE_S,
     MAX_BBOX_DEGREES,
+    ADSB_LOL_MAX_RADIUS_NM,
     getAircraftType,
     isValidCoord,
     transformState,
     processFlightStates,
+    bboxCenterAndRadiusNm,
+    adsbLolToOpenSkyState,
+    buildAdsbLolResponse,
     generateFallbackFlights
 };

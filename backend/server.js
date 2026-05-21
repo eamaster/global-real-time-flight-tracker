@@ -137,7 +137,7 @@ app.get('/api/flights', async (req, res) => {
     let rawData;
     try {
         const url = `${OPENSKY_BASE}/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}&extended=1`;
-        const response = await openSkyRequest(url, 4000); // 4-second timeout
+        const response = await openSkyRequest(url, 15_000);
         rawData = response.data;
     } catch (error) {
         console.warn('[/api/flights] OpenSky API failed, falling back to simulated data. Error:', error.message);

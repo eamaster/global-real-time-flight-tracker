@@ -1,303 +1,286 @@
 # Global Real-Time Flight Tracker
 
-A web application to track flights in real-time using the OpenSky Network API.
+A web application to track flights in real time on an interactive Mapbox map. Data comes from the [OpenSky Network](https://opensky-network.org/) API locally, and from OpenSky plus [adsb.lol](https://api.adsb.lol/docs) in production on Cloudflare Workers.
+
+**Live site:** [https://hesam.me/global-real-time-flight-tracker/](https://hesam.me/global-real-time-flight-tracker/)  
+**Production API:** `https://global-flight-tracker-api.smah0085.workers.dev`
+
+---
 
 ## Features
 
-### Core Features
-- ✈️ **Real-time Flight Tracking** - Track thousands of flights worldwide on an interactive map
-- 🎯 **Smooth 60 FPS Animation** - FlightRadar24-style smooth movement with position interpolation
-- 🔍 **Aircraft Search** - Search by callsign (e.g., "UAL123") or ICAO24 code with auto-zoom
-- 📊 **Accurate Flight Count** - Real-time count of visible flights matching what's displayed on map
-- 🛤️ **Flight Path Trails** - Visual flight trajectories showing complete route history
-- 📱 **Enhanced Flight Popups** - Detailed information including:
-  - Departure and arrival airports
-  - Departure time and flight duration
-  - Real-time altitude, speed, heading, and vertical rate
-  - Compass direction indicators
-  - Climbing/descending status
-  - Aircraft category information
+- **Real-time flight tracking** — Thousands of aircraft on an interactive world map
+- **Smooth animation** — Interpolated movement at 60 FPS
+- **Search** — By callsign (e.g. `UAL123`) or ICAO24 hex code
+- **Flight popups** — Altitude, speed, heading, vertical rate, route info, and tracks
+- **Smart filtering** — Airborne only, minimum altitude/speed, stale positions removed, 80° bbox limit
+- **Auto-refresh** — Polls every 15 seconds; debounced refetch on pan/zoom
 
-### Smart Filtering
-- **Realistic Flight Display** — Only shows airborne aircraft (filters out parked/taxiing planes)
-- **Altitude Filter** — Displays flights above 100 metres
-- **Speed Filter** — Shows flights faster than 20 m/s (~39 knots); null velocity is kept
-- **Stale Data Filter** — Removes positions older than 5 minutes (300 s)
-- **Bounding Box Limit** — Maximum 80° viewing area; shows "Zoom in to load flights" if exceeded
-
-### Technical Features
-- **OAuth2 Authentication** - Uses OpenSky Network authenticated API for higher rate limits
-- **Smart Caching** - 24-hour cache for flight info, 1-hour cache for flight tracks
-- **Error Handling** - Automatic retry with exponential backoff
-- **Responsive Design** - Dark theme optimized for all screen sizes
-- **Automatic Updates** - Refreshes flight data every 15 seconds
+---
 
 ## Tech Stack
 
-- **Backend:** Node.js, Express (local) / Cloudflare Workers (production)
-- **Frontend:** React, Vite, Mapbox GL JS
-- **API:** OpenSky Network REST API
-- **Deployment:** GitHub Pages (frontend), Cloudflare Workers (backend)
+| Layer | Local | Production |
+|-------|-------|------------|
+| Frontend | React, Vite, Mapbox GL JS | GitHub Pages |
+| Backend | Express (`server.js`) | Cloudflare Worker (`worker.js`) |
+| Flight data | OpenSky Network | OpenSky + adsb.lol fallback |
+
+---
 
 ## Prerequisites
 
-Before setting up the project, you'll need:
+1. **OpenSky Network credentials** — [opensky-network.org](https://opensky-network.org/) → My OpenSky → API Access → create an application
+2. **Mapbox access token** — [account.mapbox.com/access-tokens/](https://account.mapbox.com/access-tokens/)
+3. **Cloudflare account** — For backend deployment ([dash.cloudflare.com](https://dash.cloudflare.com/))
+4. **GitHub account** — For frontend deployment via GitHub Actions
 
-1. **OpenSky Network API Credentials** - Register at https://opensky-network.org/
-2. **Mapbox Access Token** - Get from https://account.mapbox.com/
-3. **Cloudflare Account** (for backend deployment) - https://dash.cloudflare.com/
-4. **GitHub Account** (for frontend deployment)
+---
 
-## Local Development Setup
+## Local Development
 
-> **Quick start:** Two terminal windows — one for the backend, one for the frontend.
+Use two terminals — one for the backend, one for the frontend.
 
-### 1. Clone the Repository
+### 1. Clone and install
+
 ```bash
-git clone <repository-url>
+git clone https://github.com/eamaster/global-real-time-flight-tracker.git
 cd global-real-time-flight-tracker
 ```
 
-### 2. Backend Setup
+### 2. Backend
+
 ```bash
 cd backend
 npm install
 ```
 
-Create `backend/.env` (never commit this file — it's in `.gitignore`):
+Create `backend/.env` (never commit — already in `.gitignore`):
+
 ```env
 PORT=3001
 OPENSKY_CLIENT_ID=your_opensky_client_id
 OPENSKY_CLIENT_SECRET=your_opensky_client_secret
 ```
 
-Start the backend:
+Start the server:
+
 ```bash
-npm run dev        # auto-restarts on file changes (Node 18+)
+npm run dev    # auto-restart on changes (Node 18+)
 # or
-npm start          # single run
+npm start
 ```
 
-The backend runs on **http://localhost:3001**
+Backend runs at **http://localhost:3001**
 
-Verify it works:
+Verify:
+
 ```bash
 curl "http://localhost:3001/"
 curl "http://localhost:3001/api/flights?lat_min=45&lon_min=5&lat_max=55&lon_max=15"
 ```
 
-### 3. Frontend Setup
+### 3. Frontend
+
 ```bash
-cd ../frontend
+cd frontend
 npm install
 ```
 
-Create `frontend/.env.local` (never commit this file — it's in `.gitignore`):
+Create `frontend/.env.local` (never commit):
+
 ```env
 VITE_MAPBOX_TOKEN=your_mapbox_token_here
 
-# Leave VITE_API_URL empty for local dev.
-# The Vite proxy will forward /api/* to http://localhost:3001.
+# Leave empty — Vite proxies /api/* → http://localhost:3001
 VITE_API_URL=
 
 VITE_BASE_PATH=/
 ```
 
-Start the frontend:
+Start the dev server:
+
 ```bash
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser.
+Open **http://localhost:5173**
 
-### 4. Expected Behaviour on Localhost
+### Expected behaviour on localhost
 
-- Map loads centred on Europe at zoom 5 (bbox ~35°×25°, well within the 80° limit)
-- Flights appear within a few seconds if OpenSky returns data for that region
-- Panning / zooming triggers a new fetch on `moveend`
-- Zooming out past the 80° limit shows: *"Zoom in to load flights"*
-- If zero flights are returned the UI shows how many were rejected and why
-- If the backend is not running a clear "Cannot reach backend" error is shown
+- Map loads centred on Europe (zoom 5)
+- Flights appear within a few seconds when OpenSky has coverage
+- Panning/zooming triggers a new fetch on `moveend`
+- Viewport wider than 80° shows *"Zoom in to load flights"*
+- Backend offline → *"Cannot reach the backend"* banner
+- Missing Mapbox token → map stays blank with setup instructions
+
+---
 
 ## Production Deployment
 
-### Backend Deployment (Cloudflare Workers)
+### Backend — Cloudflare Workers
 
-1. **Install Wrangler CLI**:
+1. **Install and log in to Wrangler**
+
    ```bash
    npm install -g wrangler
-   ```
-
-2. **Login to Cloudflare**:
-   ```bash
    wrangler login
    ```
 
-3. **Deploy the Worker**:
+2. **Set OpenSky secrets** (recommended — higher rate limits; use **Secrets**, not plain vars):
+
    ```bash
    cd backend
-   wrangler deploy
+   npx wrangler secret put OPENSKY_CLIENT_ID
+   npx wrangler secret put OPENSKY_CLIENT_SECRET
    ```
 
-4. **Set Environment Variables** in Cloudflare Dashboard:
-   - Go to Workers & Pages > global-flight-tracker-api > Settings > Variables
-   - Add:
-     - `OPENSKY_CLIENT_ID`: Your OpenSky Network client ID
-     - `OPENSKY_CLIENT_SECRET`: Your OpenSky Network client secret
+   Or in the Cloudflare dashboard: **Workers & Pages → global-flight-tracker-api → Settings → Variables and Secrets**.
 
-5. **Get Your Worker URL**:
-   After deployment, your API will be available at:
-   `https://global-flight-tracker-api.your-subdomain.workers.dev`
+3. **Deploy**
 
-### Frontend Deployment (GitHub Pages)
-
-1. **Push Code to GitHub**:
    ```bash
-   git add .
-   git commit -m "Initial commit"
-   git push origin main
+   cd backend
+   npm install
+   npm run deploy
    ```
 
-2. **Configure Repository Secrets**:
-   In your GitHub repository, go to Settings > Secrets and variables > Actions, and add:
-   - `VITE_MAPBOX_TOKEN`: Your Mapbox access token
-   - `VITE_API_URL`: Your Cloudflare Worker URL
+   Worker URL: `https://global-flight-tracker-api.smah0085.workers.dev`
 
-3. **Enable GitHub Pages**:
-   - Go to repository Settings > Pages
-   - Set Source to "GitHub Actions"
-   - The workflow will automatically deploy on push to main branch
+4. **Verify**
 
-4. **Custom Domain (Optional)**:
-   - In repository Settings > Pages
-   - Set Custom domain to your desired domain
-   - Enable "Enforce HTTPS"
-   - Add CNAME DNS record pointing to your GitHub Pages URL
+   ```bash
+   curl "https://global-flight-tracker-api.smah0085.workers.dev/"
+   curl "https://global-flight-tracker-api.smah0085.workers.dev/api/flights?lat_min=45&lon_min=5&lat_max=55&lon_max=15"
+   ```
+
+   Real data: `"_source":"adsb_lol"` or OpenSky hex IDs (e.g. `39e699`). Demo data: `"_source":"enhanced_sample"` with `SAMPLE001`-style IDs.
+
+   Diagnostics: `GET /api/diagnostics` — reports OpenSky vs adsb.lol reachability from the worker.
+
+#### Why adsb.lol in production?
+
+OpenSky (`opensky-network.org` and its auth server) often **times out from Cloudflare Workers edge**. The worker queries OpenSky and adsb.lol **in parallel** and uses whichever responds first. Local dev still uses OpenSky directly via Express.
+
+---
+
+### Frontend — GitHub Pages
+
+1. **Enable Pages** — Repository **Settings → Pages → Source: GitHub Actions**
+
+2. **Add GitHub secret** — **Settings → Secrets and variables → Actions**:
+   - `VITE_MAPBOX_TOKEN` — your Mapbox token
+
+   The worker URL and base path are set in `.github/workflows/deploy.yml`:
+
+   ```yaml
+   VITE_API_URL: https://global-flight-tracker-api.smah0085.workers.dev
+   VITE_BASE_PATH: /global-real-time-flight-tracker/
+   ```
+
+3. **Deploy** — Push to `main` or run the workflow manually. The site is served from `frontend/dist` with a `.nojekyll` file and optional `CNAME`.
+
+4. **Custom domain (optional)** — Add `frontend/public/CNAME`, configure DNS, enable HTTPS in Pages settings.
+
+---
 
 ## Environment Variables
 
-### Backend (Cloudflare Workers)
-- `OPENSKY_CLIENT_ID`: OpenSky Network OAuth2 client ID
-- `OPENSKY_CLIENT_SECRET`: OpenSky Network OAuth2 client secret
+| Variable | Where | Purpose |
+|----------|-------|---------|
+| `OPENSKY_CLIENT_ID` | `backend/.env`, Cloudflare secret | OpenSky OAuth2 |
+| `OPENSKY_CLIENT_SECRET` | `backend/.env`, Cloudflare secret | OpenSky OAuth2 |
+| `VITE_MAPBOX_TOKEN` | `frontend/.env.local`, GitHub secret | Mapbox GL JS |
+| `VITE_API_URL` | `frontend/.env.local` (prod: workflow) | Backend base URL; empty locally for Vite proxy |
+| `VITE_BASE_PATH` | `frontend/.env.local` (prod: workflow) | `/` locally; `/global-real-time-flight-tracker/` on GitHub Pages |
 
-### Frontend (GitHub Actions)
-- `VITE_MAPBOX_TOKEN`: Mapbox GL JS access token
-- `VITE_API_URL`: Cloudflare Worker API URL
+---
 
 ## API Endpoints
 
-Both the local Express server (`server.js`) and the Cloudflare Worker (`worker.js`) expose the **same three endpoints**. All three proxy authenticated requests to OpenSky.
+Both `backend/server.js` (local) and `backend/worker.js` (production) expose the same routes. CORS is enabled on the worker.
 
-### `GET /api/flights`
-Real-time state vectors for a geographic bounding box.
-- **Query:** `lat_min`, `lon_min`, `lat_max`, `lon_max` (all required)
-- **OpenSky source:** `GET /api/states/all?lamin=...&lomin=...&lamax=...&lomax=...&extended=1`
-- **Returns:** Filtered/transformed flight array + `_meta` diagnostic object
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Health / API info |
+| `GET /api/flights?lat_min&lon_min&lat_max&lon_max` | Real-time flights in bounding box |
+| `GET /api/flight-track?icao24=<hex>` | Live trajectory (`time=0` on OpenSky) |
+| `GET /api/flight-info?icao24=<hex>` | Recent departure/arrival record |
+| `GET /api/diagnostics` | Worker only — upstream connectivity check |
 
-### `GET /api/flight-track?icao24=<hex>`
-Live trajectory waypoints for a single aircraft.
-- **Query:** `icao24` — 6-character lowercase hex ICAO24 address
-- **OpenSky source:** `GET /api/tracks/all?icao24=<hex>&time=0` (`time=0` = live/current track)
-- **Response:** `{ icao24, callsign, startTime, endTime, path[] }`
-  - Each `path` entry: `[time, lat, lon, baro_altitude, true_track, on_ground]`
-- **Note:** OpenSky returns 404 when no track exists — backend returns `{ path: [] }` gracefully
+Responses include `_meta` with filter/rejection counts. Fallback responses set `_source` to `adsb_lol` or `enhanced_sample`.
 
-### `GET /api/flight-info?icao24=<hex>`
-Most recent flight record (departure/arrival airports, times).
-- **Query:** `icao24` — 6-character lowercase hex ICAO24 address
-- **OpenSky source:** `GET /api/flights/aircraft?icao24=<hex>&begin=<24h_ago>&end=<now>`
-- **Returns:** Most recent flight record or `null` if none found
+---
 
 ## Project Structure
 
 ```
 global-real-time-flight-tracker/
 ├── backend/
-│   ├── server.js          # Express server for local development
-│   ├── worker.js          # Cloudflare Workers script
-│   ├── wrangler.toml      # Cloudflare Workers configuration
+│   ├── server.js           # Express (local dev)
+│   ├── worker.js           # Cloudflare Worker (production)
+│   ├── lib/flightUtils.js  # Shared filtering & transforms
+│   ├── wrangler.toml
 │   └── package.json
 ├── frontend/
 │   ├── src/
-│   │   ├── components/
-│   │   │   └── FlightMap.jsx
+│   │   ├── components/FlightMap.jsx
+│   │   ├── config/appConfig.js
 │   │   ├── App.jsx
 │   │   └── main.jsx
-│   ├── index.html
 │   └── package.json
-├── .github/workflows/
-│   └── deploy.yml         # GitHub Actions deployment workflow
-├── README.md              # This file
-└── DEPLOYMENT.md          # Detailed deployment guide
+├── .github/workflows/deploy.yml
+└── README.md
 ```
 
-## Performance
-
-### API Usage
-- **Real-time positions**: ~7,000 requests/day
-- **Flight info popups**: ~50 requests/day (90% cache hit rate)
-- **Flight tracks**: ~150 requests/day (80% cache hit rate)
-- **Total**: ~10,200 API credits/day (within OpenSky contributor limits)
-
-### Browser Performance
-- **Frame Rate**: Consistent 60 FPS
-- **Memory Usage**: ~2MB per 1,000 flights
-- **CPU Usage**: ~5-10% per core during animation
-- **Scalability**: Handles 1,000+ flights smoothly
+---
 
 ## Troubleshooting
 
-### Map loads but no flights appear
+### Demo / sample flights on production
 
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| "Zoom in to load flights" message | Viewport > 80° | Zoom in — map starts at zoom 5 which is fine |
-| Zero flights, no message | Backend not running | Start `npm run dev` in `backend/` |
-| Zero flights, count shown | All filtered out | Check console `[Flight Filter]` log for rejection counts |
-| Flights appear then vanish | Position age > 5 min | OpenSky feed delay — normal, wait for next update |
+If the live site shows `SAMPLE001`-style flights or a demo-data banner:
 
-### Missing Mapbox token
+1. Hard-refresh the browser (Ctrl+Shift+R)
+2. Confirm the API returns real data (see curl commands above)
+3. Check `/api/diagnostics` — OpenSky may timeout; adsb.lol should show `"ok":true`
+4. Redeploy the worker if needed: `cd backend && npm run deploy`
 
-The map will be blank. Add `VITE_MAPBOX_TOKEN=...` to `frontend/.env.local` and restart `npm run dev`.
+### Map loads but no flights
 
-### Backend not running / CORS error
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| "Zoom in to load flights" | Viewport > 80° | Zoom in |
+| Zero flights, no message | Backend not running | `npm run dev` in `backend/` |
+| Zero flights, count shown | All filtered out | Check Network tab → `api/flights` → `_meta.rejections` |
+| Flights disappear | Stale positions (> 5 min) | Normal; wait for next poll |
 
-Open http://localhost:3001/ in the browser — you should see the API health JSON. If not, the backend is not running. Start it with `npm run dev` in `backend/`.
+### Other issues
 
-### OpenSky credentials missing
+- **Blank map** — Set `VITE_MAPBOX_TOKEN` in `frontend/.env.local` and restart Vite
+- **CORS / cannot reach backend (local)** — Ensure backend is on port 3001; Vite proxies `/api`
+- **OpenSky 429** — Add OAuth credentials; anonymous limit is ~10 req/min
+- **413 / area too large** — Zoom in (max bbox 80°×80°)
+- **502 / timeouts** — OpenSky may be slow; production falls back to adsb.lol automatically
 
-The backend logs `[Auth] OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET not set`. It will fall back to the anonymous public API which has stricter rate limits. Add credentials to `backend/.env`.
+### Logs
 
-### OpenSky rate limit (429)
+- **Cloudflare:** Dashboard → Workers & Pages → global-flight-tracker-api → Logs
+- **GitHub Actions:** Repository → Actions tab
+- **Local:** Terminal output for both servers; browser DevTools → Network → `api/flights`
 
-The app shows a banner and waits. Anonymous API: ~10 req/min. Authenticated: much higher. Use OAuth2 credentials.
-
-### Area too large (413 / "Zoom in" message)
-
-The bounding box exceeds 80°×80°. Zoom in on the map — the default zoom of 5 always fits.
-
-### CORS errors in browser console
-
-Make sure the backend is running. The Vite proxy (`/api → localhost:3001`) handles CORS in local dev. In production, CORS headers are set in the Cloudflare Worker.
-
-### Diagnostic metadata
-
-Every API response includes `_meta.rejections` showing exactly how many flights were filtered and why. Check the browser Network tab → `api/flights` response body.
-
-### Logs and Debugging
-
-- **Cloudflare Workers**: Check logs in Cloudflare dashboard > Workers & Pages > global-flight-tracker-api > Logs
-- **GitHub Actions**: Check the Actions tab in your repository for build logs
-- **Local Development**: Check terminal output for both frontend and backend servers
+---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test locally
-5. Submit a pull request
+1. Fork the repository  
+2. Create a feature branch  
+3. Test locally (backend + frontend)  
+4. Open a pull request  
+
+---
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE).
+MIT License — see [LICENSE](LICENSE).

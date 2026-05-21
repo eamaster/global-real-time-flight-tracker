@@ -14,6 +14,57 @@ const flightTrackCache = new Map();
 const flightUtils = require('./lib/flightUtils');
 const { MAX_BBOX_DEGREES } = flightUtils;
 
+// OpenSky is unreachable from many Cloudflare edge POPs; fail fast then use adsb.lol.
+const OPENSKY_FETCH_TIMEOUT_MS = 8_000;
+const OPENSKY_MAX_RETRIES = 0;
+const ADSB_LOL_FETCH_TIMEOUT_MS = 10_000;
+
+const jsonCorsHeaders = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization',
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchOpenSkyWithRetry(url, headers = {}, maxRetries = OPENSKY_MAX_RETRIES) {
+    let lastError;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort('timeout'), OPENSKY_FETCH_TIMEOUT_MS);
+
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    Accept: 'application/json',
+                    'User-Agent': 'global-flight-tracker-api/1.0',
+                    ...headers,
+                },
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            if (response.status === 429 && attempt < maxRetries) {
+                const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+                await sleep(Math.max(retryAfter, 1) * 1000);
+                continue;
+            }
+
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            lastError = error;
+            if (attempt < maxRetries) {
+                await sleep(Math.pow(2, attempt) * 1000);
+            }
+        }
+    }
+
+    throw lastError || new Error('OpenSky fetch failed after retries');
+}
+
 // Function to get OAuth2 token from OpenSky Network
 const getOpenSkyToken = async () => {
     // Check if we have a valid token
@@ -29,9 +80,9 @@ const getOpenSkyToken = async () => {
         return null;
     }
 
-    // Add a strict timeout for token fetch so we don't hang the worker
+    // Allow enough time for auth.opensky-network.org from Cloudflare edge (3 s was too short).
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort('timeout'), 3000);
+    const timeoutId = setTimeout(() => controller.abort('timeout'), 10_000);
 
     try {
         const params = new URLSearchParams();
@@ -44,7 +95,8 @@ const getOpenSkyToken = async () => {
         const response = await fetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'global-flight-tracker-api/1.0',
             },
             body: params,
             signal: controller.signal
@@ -76,11 +128,6 @@ const getOpenSkyToken = async () => {
 
 // Function to fetch flight data from OpenSky API with fast-failover to simulation
 const fetchFlightData = async (request) => {
-    // Try to get a token, but continue without authentication if credentials are missing
-    if (!accessToken) {
-        await getOpenSkyToken();
-    }
-
     const url = new URL(request.url);
     const lat_min = url.searchParams.get('lat_min');
     const lon_min = url.searchParams.get('lon_min');
@@ -158,91 +205,94 @@ const fetchFlightData = async (request) => {
     }
 
     try {
-        let apiUrl = `https://opensky-network.org/api/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}&extended=1`;
+        const apiUrl = `https://opensky-network.org/api/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}&extended=1`;
 
-        // Make request with or without authentication
+        // Use a cached token when available; refresh in the background without blocking.
         const headers = {};
-        if (accessToken) {
+        if (accessToken && Date.now() < tokenExpiry) {
             headers['Authorization'] = `Bearer ${accessToken}`;
+        } else if (OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET) {
+            getOpenSkyToken().catch(() => null);
         }
 
-        // Add timeout and small caching to ease pressure
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort('timeout'), 4000); // Strict 4s timeout
-        
-        let response;
-        try {
-            response = await fetch(apiUrl, {
-                headers,
-                signal: controller.signal,
-                cf: { 
-                    cacheTtl: 10,
-                    cacheEverything: true 
-                }
-            });
-            clearTimeout(timeout);
-        } catch (fetchError) {
-            clearTimeout(timeout);
-            throw fetchError;
-        }
-
-        if (!response.ok) {
-            if (response.status === 401) {
-                // Token might be expired, try to refresh and retry ONCE
-                accessToken = null;
-                tokenExpiry = 0;
-                const newToken = await getOpenSkyToken();
-                if (newToken) {
-                    const retryController = new AbortController();
-                    const retryTimeout = setTimeout(() => retryController.abort('timeout'), 4000);
-                    try {
-                        const retryResponse = await fetch(apiUrl, {
-                            headers: {
-                                'Authorization': `Bearer ${newToken}`
-                            },
-                            signal: retryController.signal,
-                            cf: { 
-                                cacheTtl: 10,
-                                cacheEverything: true 
-                            }
-                        });
-                        clearTimeout(retryTimeout);
-                        if (retryResponse.ok) {
-                            const retryData = await retryResponse.json();
-                            return processFlightData(retryData);
-                        }
-                    } catch (retryError) {
-                        clearTimeout(retryTimeout);
-                    }
-                }
-            }
-            throw new Error(`Upstream error status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return processFlightData(data);
-
+        // Query OpenSky and adsb.lol in parallel — adsb.lol is reachable from Cloudflare edge.
+        return await Promise.any([
+            fetchFromOpenSky(apiUrl, headers),
+            fetchFromAdsbLol(minLat, maxLat, minLon, maxLon),
+        ]);
     } catch (error) {
-        console.error('Error fetching flight data from OpenSky, using fallback:', error.message);
+        console.error('All live flight sources failed, using demo data:', error.message || error);
         return await getFallbackFlightData(minLat, maxLat, minLon, maxLon);
     }
 };
 
-// Function to generate fallback flight data when OpenSky is down
+const fetchFromOpenSky = async (apiUrl, headers) => {
+    let response = await fetchOpenSkyWithRetry(apiUrl, headers);
+
+    if (!response.ok) {
+        if (response.status === 401) {
+            accessToken = null;
+            tokenExpiry = 0;
+            const newToken = await getOpenSkyToken();
+            if (newToken) {
+                response = await fetchOpenSkyWithRetry(apiUrl, {
+                    Authorization: `Bearer ${newToken}`,
+                }, 0);
+            }
+        }
+        if (!response.ok) {
+            throw new Error(`OpenSky upstream status: ${response.status}`);
+        }
+    }
+
+    const data = await response.json();
+    return processFlightData(data);
+};
+
+const fetchFromAdsbLol = async (minLat, maxLat, minLon, maxLon) => {
+    const { centerLat, centerLon, radiusNm } = flightUtils.bboxCenterAndRadiusNm(
+        minLat, maxLat, minLon, maxLon
+    );
+    const url = `https://api.adsb.lol/v2/lat/${centerLat.toFixed(4)}/lon/${centerLon.toFixed(4)}/dist/${radiusNm}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort('timeout'), ADSB_LOL_FETCH_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(url, {
+            headers: {
+                Accept: 'application/json',
+                'User-Agent': 'global-flight-tracker-api/1.0',
+            },
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+    } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError;
+    }
+
+    if (!response.ok) {
+        throw new Error(`adsb.lol upstream status: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const data = flightUtils.buildAdsbLolResponse(payload.ac || [], minLat, maxLat, minLon, maxLon);
+    data._meta.authUsed = !!accessToken;
+
+    console.log(`adsb.lol returned ${data.flights.length} flights for bbox.`);
+
+    return new Response(JSON.stringify(data), { status: 200, headers: jsonCorsHeaders });
+};
+
+// Function to generate fallback flight data when all live sources fail
 const getFallbackFlightData = async (minLat, maxLat, minLon, maxLon) => {
-    console.log('OpenSky API is down, using enhanced sample data fallback...');
+    console.log('All live sources failed, using enhanced sample data fallback...');
     const fallbackData = flightUtils.generateFallbackFlights(minLat, maxLat, minLon, maxLon);
     return new Response(
         JSON.stringify(fallbackData),
-        {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-            }
-        }
+        { status: 200, headers: jsonCorsHeaders }
     );
 };
 
@@ -263,18 +313,14 @@ const processFlightData = (data) => {
                 validCoordinateCount: rawStates.length - stats.invalidCoord,
                 filteredCount: flights.length,
                 rejections: stats,
+                authUsed: !!accessToken,
                 serverTimestamp: Date.now(),
             },
             timestamp: Date.now(),
         }),
         {
             status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-            }
+            headers: jsonCorsHeaders,
         }
     );
 };
@@ -422,6 +468,40 @@ async function handleRequest(request) {
     }
     
     // Handle API routes
+    if (url.pathname === '/api/diagnostics' && request.method === 'GET') {
+        const results = { timestamp: Date.now(), authConfigured: !!(OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET) };
+
+        const probe = async (label, url, init = {}) => {
+            const started = Date.now();
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort('timeout'), 8_000);
+            try {
+                const response = await fetch(url, { ...init, signal: controller.signal });
+                clearTimeout(timeoutId);
+                results[label] = { ok: response.ok, status: response.status, ms: Date.now() - started };
+            } catch (error) {
+                clearTimeout(timeoutId);
+                results[label] = { error: error.message || String(error), ms: Date.now() - started };
+            }
+        };
+
+        await probe('openskyPublic', 'https://opensky-network.org/api/states/all?lamin=45&lomin=5&lamax=55&lomax=15');
+        await probe('adsbLol', 'https://api.adsb.lol/v2/lat/51/lon/10/dist/250');
+        if (OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET) {
+            const params = new URLSearchParams();
+            params.append('grant_type', 'client_credentials');
+            params.append('client_id', OPENSKY_CLIENT_ID);
+            params.append('client_secret', OPENSKY_CLIENT_SECRET);
+            await probe('openskyAuth', 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params,
+            });
+        }
+
+        return new Response(JSON.stringify(results), { status: 200, headers: jsonCorsHeaders });
+    }
+
     if (url.pathname === '/api/flights' && request.method === 'GET') {
         return await fetchFlightData(request);
     }
@@ -499,6 +579,8 @@ async function handleRequest(request) {
         return new Response(
             JSON.stringify({ 
                 message: 'Global Real-Time Flight Tracker API',
+                status: 'ok',
+                authConfigured: !!(OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET),
                 endpoints: {
                     '/api/flights': 'GET - Fetch real-time flight data',
                     '/api/flight-info': 'GET - Fetch flight info (departure/arrival)',
@@ -507,12 +589,7 @@ async function handleRequest(request) {
             }),
             {
                 status: 200,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-                }
+                headers: jsonCorsHeaders,
             }
         );
     }

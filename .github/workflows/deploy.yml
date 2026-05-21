@@ -49,7 +49,10 @@ jobs:
         ls -la dist/
       env:
         VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
-        VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        # Worker URL is public; bake it in so production never falls back to relative /api
+        VITE_API_URL: https://global-flight-tracker-api.smah0085.workers.dev
+        VITE_BASE_PATH: /global-real-time-flight-tracker/
+        GITHUB_ACTIONS: 'true'
 
     - name: Setup Pages
       uses: actions/configure-pages@v4
