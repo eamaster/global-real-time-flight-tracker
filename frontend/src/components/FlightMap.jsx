@@ -50,8 +50,6 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
     const validFlightsRef = useRef([]);
     const showEnhancedPopupRef = useRef(null);
 
-    validFlightsRef.current = validFlights;
-
     // Memoize valid flights to avoid recalculating
     const validFlights = useMemo(() => {
         return flights.filter(flight =>
@@ -66,6 +64,8 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
             typeof flight.heading === 'number'
         );
     }, [flights]);
+
+    validFlightsRef.current = validFlights;
 
     // Notify parent of valid flight count via useEffect (NOT inside useMemo —
     // calling a state-setter during render is a React rule violation).
