@@ -31,6 +31,10 @@ const getOpenSkyToken = async () => {
         return null;
     }
 
+    // Add a strict timeout for token fetch so we don't hang the worker
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort('timeout'), 3000);
+
     try {
         const params = new URLSearchParams();
         params.append('grant_type', 'client_credentials');
@@ -44,8 +48,11 @@ const getOpenSkyToken = async () => {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: params
+            body: params,
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -61,7 +68,8 @@ const getOpenSkyToken = async () => {
         return accessToken;
 
     } catch (error) {
-        console.error('Error getting OpenSky token:', error.message);
+        clearTimeout(timeoutId);
+        console.error('Error getting OpenSky token:', error.message || error);
         accessToken = null;
         tokenExpiry = 0;
         return null;

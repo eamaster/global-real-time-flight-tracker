@@ -141,13 +141,6 @@ const FlightMap = ({ flights, onValidFlightCountChange, selectedAircraft }) => {
                     'text-opacity': 1
                 }
             });
-
-            // Add smooth transitions for position changes
-            map.current.setPaintProperty('flight-markers', 'text-opacity-transition', {
-                duration: 300,
-                delay: 0
-            });
-
             // Add click handler for flight details with enhanced info and trails
             map.current.on('click', 'flight-markers', async (e) => {
                 const flight = e.features[0].properties;

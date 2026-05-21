@@ -54,7 +54,7 @@ const getOpenSkyToken = async () => {
         const response = await axios.post(
             'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token',
             params,
-            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10_000 }
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 3000 }
         );
 
         accessToken = response.data.access_token;
