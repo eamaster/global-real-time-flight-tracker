@@ -11,10 +11,8 @@ const flightTrackCache = new Map();
 // ---------------------------------------------------------------------------
 // Filter constants — keep in sync with frontend/src/config/appConfig.js
 // ---------------------------------------------------------------------------
-const MIN_ALTITUDE_M = 100;
-const MIN_SPEED_MPS = 20;        // 20 m/s ≈ 39 knots
-const MAX_POSITION_AGE_S = 300;  // 5 minutes
-const MAX_BBOX_DEGREES = 80;
+const flightUtils = require('./lib/flightUtils');
+const { MAX_BBOX_DEGREES } = flightUtils;
 
 // Function to get OAuth2 token from OpenSky Network
 const getOpenSkyToken = async () => {
@@ -108,19 +106,44 @@ const fetchFlightData = async (request) => {
         );
     }
 
-    // Validate and clamp bbox to a reasonable size (avoid CPU limit)
-    const minLat = Math.max(-90, Math.min(90, parseFloat(lat_min)));
-    const maxLat = Math.max(-90, Math.min(90, parseFloat(lat_max)));
-    const minLon = Math.max(-180, Math.min(180, parseFloat(lon_min)));
-    const maxLon = Math.max(-180, Math.min(180, parseFloat(lon_max)));
+    const minLatParsed = parseFloat(lat_min);
+    const minLonParsed = parseFloat(lon_min);
+    const maxLatParsed = parseFloat(lat_max);
+    const maxLonParsed = parseFloat(lon_max);
 
-    // Reject huge boxes — matches FlightRadar24 behaviour
-    if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLon) || !Number.isFinite(maxLon) ||
-        Math.abs(maxLat - minLat) > MAX_BBOX_DEGREES || Math.abs(maxLon - minLon) > MAX_BBOX_DEGREES) {
+    if (!Number.isFinite(minLatParsed) || !Number.isFinite(minLonParsed) ||
+        !Number.isFinite(maxLatParsed) || !Number.isFinite(maxLonParsed)) {
+        return new Response(
+            JSON.stringify({
+                message: 'Invalid bbox parameters — must be finite numbers.'
+            }),
+            {
+                status: 400,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                }
+            }
+        );
+    }
+
+    // Clamp coordinates to valid ranges
+    const minLat = Math.max(-90, Math.min(90, minLatParsed));
+    const maxLat = Math.max(-90, Math.min(90, maxLatParsed));
+    const minLon = Math.max(-180, Math.min(180, minLonParsed));
+    const maxLon = Math.max(-180, Math.min(180, maxLonParsed));
+
+    const bboxWidth  = Math.abs(maxLon - minLon);
+    const bboxHeight = Math.abs(maxLat - minLat);
+
+    // Reject huge boxes
+    if (bboxWidth > MAX_BBOX_DEGREES || bboxHeight > MAX_BBOX_DEGREES) {
         return new Response(
             JSON.stringify({ 
-                message: 'Bounding box too large. Please zoom in further.',
-                hint: 'Maximum allowed area is 80° x 80° degrees'
+                message: `Bounding box too large (${bboxWidth.toFixed(1)}°×${bboxHeight.toFixed(1)}°). Maximum is ${MAX_BBOX_DEGREES}°×${MAX_BBOX_DEGREES}°. Please zoom in.`,
+                maxAllowed: MAX_BBOX_DEGREES
             }),
             {
                 status: 413,
@@ -208,178 +231,26 @@ const fetchFlightData = async (request) => {
 // Function to generate fallback flight data when OpenSky is down
 const getFallbackFlightData = async (minLat, maxLat, minLon, maxLon) => {
     console.log('OpenSky API is down, using enhanced sample data fallback...');
-    
-    // Using enhanced sample data as fallback
-    return generateSampleFlightData(minLat, maxLat, minLon, maxLon);
-};
-
-// Function to generate enhanced sample flight data (final fallback)
-const generateSampleFlightData = (minLat, maxLat, minLon, maxLon) => {
-    console.log('Generating enhanced sample flight data as final fallback');
-    
-    // Generate realistic sample flights in the requested area
-    const sampleFlights = [];
-    const numFlights = Math.min(25, Math.floor(Math.random() * 35) + 15); // 15-50 flights
-    
-    // Realistic aircraft types and patterns
-    const aircraftTypes = [
-        { category: 2, type: 'Light Aircraft', callsigns: ['N1234', 'G-ABCD', 'F-ABCD'] },
-        { category: 3, type: 'Small Aircraft', callsigns: ['C-GABC', 'N5678', 'G-EFGH'] },
-        { category: 4, type: 'Large Aircraft', callsigns: ['BA123', 'AA456', 'DL789'] },
-        { category: 6, type: 'Heavy Aircraft', callsigns: ['LH123', 'AF456', 'EK789'] }
-    ];
-    
-    // Realistic countries for the region
-    const countries = ['United States', 'Canada', 'United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy'];
-    
-    for (let i = 0; i < numFlights; i++) {
-        const lat = minLat + Math.random() * (maxLat - minLat);
-        const lon = minLon + Math.random() * (maxLon - minLon);
-        
-        // Select realistic aircraft type
-        const aircraftType = aircraftTypes[Math.floor(Math.random() * aircraftTypes.length)];
-        const callsign = aircraftType.callsigns[Math.floor(Math.random() * aircraftType.callsigns.length)] + 
-                        Math.floor(Math.random() * 999).toString().padStart(3, '0');
-        
-        // Realistic altitude based on aircraft type
-        let altitude;
-        if (aircraftType.category === 2) { // Light aircraft
-            altitude = Math.floor(Math.random() * 3000) + 500; // 500-3500m
-        } else if (aircraftType.category === 3) { // Small aircraft
-            altitude = Math.floor(Math.random() * 6000) + 1000; // 1000-7000m
-        } else { // Large/Heavy aircraft
-            altitude = Math.floor(Math.random() * 12000) + 8000; // 8000-20000m
+    const fallbackData = flightUtils.generateFallbackFlights(minLat, maxLat, minLon, maxLon);
+    return new Response(
+        JSON.stringify(fallbackData),
+        {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+            }
         }
-        
-        // Realistic speed based on aircraft type
-        let speed;
-        if (aircraftType.category === 2) { // Light aircraft
-            speed = Math.floor(Math.random() * 80) + 40; // 40-120 m/s
-        } else if (aircraftType.category === 3) { // Small aircraft
-            speed = Math.floor(Math.random() * 120) + 80; // 80-200 m/s
-        } else { // Large/Heavy aircraft
-            speed = Math.floor(Math.random() * 200) + 150; // 150-350 m/s
-        }
-        
-        // Realistic heading (avoid random directions)
-        const heading = Math.floor(Math.random() * 360);
-        
-        // Realistic vertical rate
-        const verticalRate = Math.floor(Math.random() * 15) - 7; // -7 to +8 m/s
-        
-        // Realistic ground status (higher aircraft less likely to be on ground)
-        const onGround = aircraftType.category >= 4 ? Math.random() > 0.95 : Math.random() > 0.7;
-        
-        sampleFlights.push([
-            `SAMPLE${i.toString().padStart(3, '0')}`, // icao24
-            callsign, // callsign
-            countries[Math.floor(Math.random() * countries.length)], // origin_country
-            Math.floor(Date.now() / 1000), // time_position
-            Math.floor(Date.now() / 1000), // last_contact
-            lon, // longitude
-            lat, // latitude
-            altitude, // baro_altitude
-            onGround, // on_ground
-            speed, // velocity
-            heading, // true_track
-            verticalRate, // vertical_rate
-            [], // sensors
-            altitude + Math.floor(Math.random() * 100) - 50, // geo_altitude (slightly different)
-            Math.floor(Math.random() * 9999).toString().padStart(4, '0'), // squawk
-            false, // spi
-            0, // position_source
-            aircraftType.category // category
-        ]);
-    }
-    
-    const fallbackData = {
-        states: sampleFlights,
-        _fallback: true,
-        _source: 'enhanced_sample',
-        _message: 'OpenSky API unavailable. Showing enhanced sample data for demonstration.'
-    };
-    
-    return processFlightData(fallbackData);
+    );
 };
 
 // Function to process and structure flight data
 const processFlightData = (data) => {
     const rawStates = data.states ?? [];
-    const rawStateCount = rawStates.length;
     const now = Math.floor(Date.now() / 1000);
-
-    let invalidCoordCount   = 0;
-    let groundedCount       = 0;
-    let altitudeTooLowCount = 0;
-    let stalePosCount       = 0;
-    let speedTooLowCount    = 0;
-
-    const flights = rawStates
-        .filter(state => {
-            // --- Coordinate validation ---
-            // Use Number.isFinite: longitude=0 and latitude=0 are VALID coordinates.
-            // The previous `if (!state[5] || !state[6])` falsy-check was a bug.
-            const lon = parseFloat(state[5]);
-            const lat = parseFloat(state[6]);
-            if (!Number.isFinite(lon) || !Number.isFinite(lat) ||
-                lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-                invalidCoordCount++;
-                return false;
-            }
-
-            // Airborne only
-            if (state[8] === true) {
-                groundedCount++;
-                return false;
-            }
-
-            // Minimum altitude (barometric preferred, fall back to geometric)
-            const altitude = state[7] ?? state[13] ?? 0;
-            if (altitude < MIN_ALTITUDE_M) {
-                altitudeTooLowCount++;
-                return false;
-            }
-
-            // Position freshness — only check when time_position is populated
-            if (state[3] != null && (now - state[3]) > MAX_POSITION_AGE_S) {
-                stalePosCount++;
-                return false;
-            }
-
-            // Minimum speed — only when velocity is explicitly known (null = unknown → keep)
-            if (state[9] !== null && state[9] < MIN_SPEED_MPS) {
-                speedTooLowCount++;
-                return false;
-            }
-
-            return true;
-        })
-        .map(state => ({
-            icao24:          state[0],
-            callsign:        state[1] ? state[1].trim() : null,
-            origin_country:  state[2],
-            time_position:   state[3],
-            last_contact:    state[4],
-            longitude:       parseFloat(state[5]),
-            latitude:        parseFloat(state[6]),
-            baro_altitude:   state[7],
-            on_ground:       state[8],
-            velocity:        state[9],
-            true_track:      state[10],
-            vertical_rate:   state[11],
-            sensors:         state[12],
-            geo_altitude:    state[13],
-            squawk:          state[14],
-            spi:             state[15],
-            position_source: state[16],
-            category:        state[17] ?? 0,
-            // Derived / convenience fields
-            heading:      state[10] ?? 0,
-            altitude_ft:  state[7] != null ? Math.round(state[7] * 3.28084) : null,
-            speed_kts:    state[9] != null ? Math.round(state[9] * 1.94384) : null,
-            speed_mph:    state[9] != null ? Math.round(state[9] * 2.23694) : null,
-            aircraft_type: getAircraftType(state[17] ?? 0),
-        }));
+    const { flights, stats } = flightUtils.processFlightStates(rawStates, now);
 
     return new Response(
         JSON.stringify({
@@ -388,16 +259,10 @@ const processFlightData = (data) => {
             _source:   data._source   || null,
             _message:  data._message  || null,
             _meta: {
-                rawStateCount,
-                validCoordinateCount: rawStateCount - invalidCoordCount,
+                rawStateCount: rawStates.length,
+                validCoordinateCount: rawStates.length - stats.invalidCoord,
                 filteredCount: flights.length,
-                rejections: {
-                    invalidCoord:   invalidCoordCount,
-                    onGround:       groundedCount,
-                    altitudeTooLow: altitudeTooLowCount,
-                    stalePosition:  stalePosCount,
-                    speedTooLow:    speedTooLowCount,
-                },
+                rejections: stats,
                 serverTimestamp: Date.now(),
             },
             timestamp: Date.now(),
@@ -412,34 +277,6 @@ const processFlightData = (data) => {
             }
         }
     );
-};
-
-// Helper function to get aircraft type description
-const getAircraftType = (category) => {
-    const types = {
-        0: 'Unknown',
-        1: 'No ADS-B Info',
-        2: 'Light (< 15,500 lbs)',
-        3: 'Small (15,500 - 75,000 lbs)',
-        4: 'Large (75,000 - 300,000 lbs)',
-        5: 'High Vortex Large (B-757)',
-        6: 'Heavy (> 300,000 lbs)',
-        7: 'High Performance (> 5g, 400 kts)',
-        8: 'Rotorcraft',
-        9: 'Glider/Sailplane',
-        10: 'Lighter-than-air',
-        11: 'Parachutist/Skydiver',
-        12: 'Ultralight/Hang-glider',
-        13: 'Reserved',
-        14: 'UAV/Drone',
-        15: 'Space Vehicle',
-        16: 'Emergency Vehicle',
-        17: 'Service Vehicle',
-        18: 'Point Obstacle',
-        19: 'Cluster Obstacle',
-        20: 'Line Obstacle'
-    };
-    return types[category] || 'Unknown';
 };
 
 // Handle CORS preflight requests
