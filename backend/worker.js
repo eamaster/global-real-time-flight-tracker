@@ -68,218 +68,132 @@ const getOpenSkyToken = async () => {
     }
 };
 
-// Function to fetch flight data from OpenSky API with retry logic
+// Function to fetch flight data from OpenSky API with fast-failover to simulation
 const fetchFlightData = async (request) => {
-    const maxRetries = 3;
-    let retryCount = 0;
+    // Try to get a token, but continue without authentication if credentials are missing
+    if (!accessToken) {
+        await getOpenSkyToken();
+    }
 
-    while (retryCount < maxRetries) {
-        try {
-            // Try to get a token, but continue without authentication if credentials are missing
-            if (!accessToken) {
-                const token = await getOpenSkyToken();
-                // Continue without token if credentials are not configured (use public API)
-                if (!token) {
-                    console.log('No OpenSky credentials configured, using public API (rate limited)');
+    const url = new URL(request.url);
+    const lat_min = url.searchParams.get('lat_min');
+    const lon_min = url.searchParams.get('lon_min');
+    const lat_max = url.searchParams.get('lat_max');
+    const lon_max = url.searchParams.get('lon_max');
+
+    // Require a bounding box to avoid fetching the entire planet
+    if (!(lat_min && lon_min && lat_max && lon_max)) {
+        return new Response(
+            JSON.stringify({
+                message: 'Bounding box required',
+                hint: 'Pass lat_min, lon_min, lat_max, lon_max query params to reduce payload'
+            }),
+            {
+                status: 400,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
                 }
             }
+        );
+    }
 
-            const url = new URL(request.url);
-            const lat_min = url.searchParams.get('lat_min');
-            const lon_min = url.searchParams.get('lon_min');
-            const lat_max = url.searchParams.get('lat_max');
-            const lon_max = url.searchParams.get('lon_max');
+    // Validate and clamp bbox to a reasonable size (avoid CPU limit)
+    const minLat = Math.max(-90, Math.min(90, parseFloat(lat_min)));
+    const maxLat = Math.max(-90, Math.min(90, parseFloat(lat_max)));
+    const minLon = Math.max(-180, Math.min(180, parseFloat(lon_min)));
+    const maxLon = Math.max(-180, Math.min(180, parseFloat(lon_max)));
 
-            // Require a bounding box to avoid fetching the entire planet
-            if (!(lat_min && lon_min && lat_max && lon_max)) {
-                return new Response(
-                    JSON.stringify({
-                        message: 'Bounding box required',
-                        hint: 'Pass lat_min, lon_min, lat_max, lon_max query params to reduce payload'
-                    }),
-                    {
-                        status: 400,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Access-Control-Allow-Origin': '*',
-                            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-                        }
-                    }
-                );
+    // Reject huge boxes — matches FlightRadar24 behaviour
+    if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLon) || !Number.isFinite(maxLon) ||
+        Math.abs(maxLat - minLat) > MAX_BBOX_DEGREES || Math.abs(maxLon - minLon) > MAX_BBOX_DEGREES) {
+        return new Response(
+            JSON.stringify({ 
+                message: 'Bounding box too large. Please zoom in further.',
+                hint: 'Maximum allowed area is 80° x 80° degrees'
+            }),
+            {
+                status: 413,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
+                }
             }
+        );
+    }
 
-            // Validate and clamp bbox to a reasonable size (avoid CPU limit)
-            const minLat = Math.max(-90, Math.min(90, parseFloat(lat_min)));
-            const maxLat = Math.max(-90, Math.min(90, parseFloat(lat_max)));
-            const minLon = Math.max(-180, Math.min(180, parseFloat(lon_min)));
-            const maxLon = Math.max(-180, Math.min(180, parseFloat(lon_max)));
+    try {
+        let apiUrl = `https://opensky-network.org/api/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}&extended=1`;
 
-            // Reject huge boxes — matches FlightRadar24 behaviour
-            if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLon) || !Number.isFinite(maxLon) ||
-                Math.abs(maxLat - minLat) > MAX_BBOX_DEGREES || Math.abs(maxLon - minLon) > MAX_BBOX_DEGREES) {
-                return new Response(
-                    JSON.stringify({ 
-                        message: 'Bounding box too large. Please zoom in further.',
-                        hint: 'Maximum allowed area is 80° x 80° degrees'
-                    }),
-                    {
-                        status: 413,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Access-Control-Allow-Origin': '*',
-                            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-                        }
-                    }
-                );
-            }
+        // Make request with or without authentication
+        const headers = {};
+        if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+        }
 
-            let apiUrl = `https://opensky-network.org/api/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}&extended=1`;
+        // Add timeout and small caching to ease pressure
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort('timeout'), 4000); // Strict 4s timeout
+        
+        let response;
+        try {
+            response = await fetch(apiUrl, {
+                headers,
+                signal: controller.signal,
+                cf: { 
+                    cacheTtl: 10,
+                    cacheEverything: true 
+                }
+            });
+            clearTimeout(timeout);
+        } catch (fetchError) {
+            clearTimeout(timeout);
+            throw fetchError;
+        }
 
-            // Make request with or without authentication
-            const headers = {};
-            if (accessToken) {
-                headers['Authorization'] = `Bearer ${accessToken}`;
-            }
-
-            // Add timeout and small caching to ease pressure
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort('timeout'), 15000); // Increased to 15 seconds
-            
-            try {
-                const response = await fetch(apiUrl, {
-                    headers,
-                    signal: controller.signal,
-                    cf: { 
-                        cacheTtl: 10, // Increased cache time
-                        cacheEverything: true 
-                    }
-                });
-                clearTimeout(timeout);
-
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        // Token might be expired, try to get a new one
-                        accessToken = null;
-                        tokenExpiry = 0;
-                        const newToken = await getOpenSkyToken();
-                        if (newToken) {
-                            // Retry with new token
-                            const retryResponse = await fetch(apiUrl, {
-                                headers: {
-                                    'Authorization': `Bearer ${newToken}`
-                                }
-                            });
-                            if (!retryResponse.ok) {
-                                throw new Error(`HTTP error! status: ${retryResponse.status}`);
+        if (!response.ok) {
+            if (response.status === 401) {
+                // Token might be expired, try to refresh and retry ONCE
+                accessToken = null;
+                tokenExpiry = 0;
+                const newToken = await getOpenSkyToken();
+                if (newToken) {
+                    const retryController = new AbortController();
+                    const retryTimeout = setTimeout(() => retryController.abort('timeout'), 4000);
+                    try {
+                        const retryResponse = await fetch(apiUrl, {
+                            headers: {
+                                'Authorization': `Bearer ${newToken}`
+                            },
+                            signal: retryController.signal,
+                            cf: { 
+                                cacheTtl: 10,
+                                cacheEverything: true 
                             }
+                        });
+                        clearTimeout(retryTimeout);
+                        if (retryResponse.ok) {
                             const retryData = await retryResponse.json();
                             return processFlightData(retryData);
-                        } else {
-                            throw new Error('Failed to refresh authentication token');
                         }
-                    } else if (response.status === 429) {
-                        return new Response(
-                            JSON.stringify({ 
-                                message: 'Rate limit exceeded. Please try again later.',
-                                retryAfter: response.headers.get('Retry-After') || 60
-                            }),
-                            { 
-                                status: 429,
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Access-Control-Allow-Origin': '*',
-                                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization',
-                                    'Retry-After': response.headers.get('Retry-After') || '60'
-                                }
-                            }
-                        );
-                    } else if (response.status === 503) {
-                        // OpenSky API is down - return fallback data
-                        console.log('OpenSky API is down (503), returning fallback data');
-                        return await getFallbackFlightData(minLat, maxLat, minLon, maxLon);
-                    } else if (response.status >= 500) {
-                        // For upstream errors, try to retry
-                        if (retryCount < maxRetries - 1) {
-                            retryCount++;
-                            console.log(`Upstream error ${response.status}, retrying ${retryCount}/${maxRetries}`);
-                            // Wait before retry (exponential backoff)
-                            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
-                            continue;
-                        }
-                        
-                        return new Response(
-                            JSON.stringify({ 
-                                message: 'Upstream service temporarily unavailable. Please retry shortly.',
-                                retryCount: retryCount + 1
-                            }),
-                            {
-                                status: 502,
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Access-Control-Allow-Origin': '*',
-                                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                                    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-                                }
-                            }
-                        );
-                    } else {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                    } catch (retryError) {
+                        clearTimeout(retryTimeout);
                     }
                 }
-
-                const data = await response.json();
-                return processFlightData(data);
-
-            } catch (fetchError) {
-                clearTimeout(timeout);
-                if (fetchError.name === 'AbortError') {
-                    throw new Error('Request timeout - OpenSky API is taking too long to respond');
-                }
-                throw fetchError;
             }
-
-        } catch (error) {
-            console.error(`Error fetching flight data from OpenSky (attempt ${retryCount + 1}):`, error.message);
-            
-            // If this is the last retry, return fallback data instead of error
-            if (retryCount >= maxRetries - 1) {
-                console.log('All retries failed, returning fallback data');
-                const url = new URL(request.url);
-                const lat_min = parseFloat(url.searchParams.get('lat_min'));
-                const lon_min = parseFloat(url.searchParams.get('lon_min'));
-                const lat_max = parseFloat(url.searchParams.get('lat_max'));
-                const lon_max = parseFloat(url.searchParams.get('lon_max'));
-                
-                if (Number.isFinite(lat_min) && Number.isFinite(lon_min) && 
-                    Number.isFinite(lat_max) && Number.isFinite(lon_max)) {
-                    return await getFallbackFlightData(lat_min, lat_max, lon_min, lon_max);
-                }
-                
-                return new Response(
-                    JSON.stringify({ 
-                        message: 'Failed to fetch flight data after multiple attempts.',
-                        error: error.message,
-                        retryCount: retryCount + 1
-                    }),
-                    { 
-                        status: 500,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Access-Control-Allow-Origin': '*',
-                            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                            'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization'
-                        }
-                    }
-                );
-            }
-            
-            // Increment retry count and wait before next attempt
-            retryCount++;
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+            throw new Error(`Upstream error status: ${response.status}`);
         }
+
+        const data = await response.json();
+        return processFlightData(data);
+
+    } catch (error) {
+        console.error('Error fetching flight data from OpenSky, using fallback:', error.message);
+        return await getFallbackFlightData(minLat, maxLat, minLon, maxLon);
     }
 };
 
@@ -541,9 +455,13 @@ const fetchFlightInfo = async (icao24) => {
         return cached.data;
     }
     
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort('timeout'), 5000); // 5s timeout
+    
     try {
         const token = await getOpenSkyToken();
         if (!token) {
+            clearTimeout(timeout);
             return null; // No auth, skip
         }
         
@@ -556,9 +474,11 @@ const fetchFlightInfo = async (icao24) => {
             {
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                signal: controller.signal
             }
         );
+        clearTimeout(timeout);
         
         if (!response.ok) {
             return null;
@@ -581,6 +501,7 @@ const fetchFlightInfo = async (icao24) => {
         
         return latestFlight;
     } catch (error) {
+        clearTimeout(timeout);
         console.error('Error fetching flight info:', error.message);
         return null;
     }
@@ -595,9 +516,13 @@ const fetchFlightTrack = async (icao24) => {
         return cached.data;
     }
     
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort('timeout'), 5000); // 5s timeout
+    
     try {
         const token = await getOpenSkyToken();
         if (!token) {
+            clearTimeout(timeout);
             return null; // No auth, skip
         }
         
@@ -606,9 +531,11 @@ const fetchFlightTrack = async (icao24) => {
             {
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                signal: controller.signal
             }
         );
+        clearTimeout(timeout);
         
         if (!response.ok) {
             return null;
@@ -630,6 +557,7 @@ const fetchFlightTrack = async (icao24) => {
         
         return track;
     } catch (error) {
+        clearTimeout(timeout);
         console.error('Error fetching flight track:', error.message);
         return null;
     }

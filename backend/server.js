@@ -75,7 +75,7 @@ const getOpenSkyToken = async () => {
 // ---------------------------------------------------------------------------
 // Shared helper — build axios request config with optional Bearer token
 // ---------------------------------------------------------------------------
-const openSkyRequest = async (url, timeoutMs = 15_000) => {
+const openSkyRequest = async (url, timeoutMs = 4000) => {
     const token = await getOpenSkyToken();
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     return axios.get(url, { headers, timeout: timeoutMs });
@@ -90,6 +90,34 @@ const isValidCoord = (lon, lat) =>
     Number.isFinite(lon) && Number.isFinite(lat) &&
     lat >= -90 && lat <= 90 &&
     lon >= -180 && lon <= 180;
+
+// Helper function to get aircraft type description
+const getAircraftType = (category) => {
+    const types = {
+        0: 'Unknown',
+        1: 'No ADS-B Info',
+        2: 'Light (< 15,500 lbs)',
+        3: 'Small (15,500 - 75,000 lbs)',
+        4: 'Large (75,000 - 300,000 lbs)',
+        5: 'High Vortex Large (B-757)',
+        6: 'Heavy (> 300,000 lbs)',
+        7: 'High Performance (> 5g, 400 kts)',
+        8: 'Rotorcraft',
+        9: 'Glider/Sailplane',
+        10: 'Lighter-than-air',
+        11: 'Parachutist/Skydiver',
+        12: 'Ultralight/Hang-glider',
+        13: 'Reserved',
+        14: 'UAV/Drone',
+        15: 'Space Vehicle',
+        16: 'Emergency Vehicle',
+        17: 'Service Vehicle',
+        18: 'Point Obstacle',
+        19: 'Cluster Obstacle',
+        20: 'Line Obstacle'
+    };
+    return types[category] || 'Unknown';
+};
 
 /** Transform a raw OpenSky state-vector array into a named object. */
 const transformState = (state) => ({
@@ -115,7 +143,103 @@ const transformState = (state) => ({
     heading:     state[10] ?? 0,
     altitude_ft: state[7] != null ? Math.round(state[7] * 3.28084) : null,
     speed_kts:   state[9] != null ? Math.round(state[9] * 1.94384) : null,
+    speed_mph:   state[9] != null ? Math.round(state[9] * 2.23694) : null,
+    aircraft_type: getAircraftType(state[17] ?? 0),
 });
+
+// Function to generate fallback flight data when OpenSky is down or rate-limited on localhost
+const getFallbackFlightData = (res, minLat, maxLat, minLon, maxLon, errorMsg) => {
+    console.log(`[Fallback] OpenSky fetch failed (${errorMsg}), generating sample flight data...`);
+    const sampleFlights = [];
+    const numFlights = Math.min(25, Math.floor(Math.random() * 35) + 15); // 15-50 flights
+
+    const aircraftTypes = [
+        { category: 2, type: 'Light Aircraft', callsigns: ['N1234', 'G-ABCD', 'F-ABCD'] },
+        { category: 3, type: 'Small Aircraft', callsigns: ['C-GABC', 'N5678', 'G-EFGH'] },
+        { category: 4, type: 'Large Aircraft', callsigns: ['BA123', 'AA456', 'DL789'] },
+        { category: 6, type: 'Heavy Aircraft', callsigns: ['LH123', 'AF456', 'EK789'] }
+    ];
+
+    const countries = ['United States', 'Canada', 'United Kingdom', 'Germany', 'France', 'Netherlands', 'Spain', 'Italy'];
+
+    for (let i = 0; i < numFlights; i++) {
+        const lat = minLat + Math.random() * (maxLat - minLat);
+        const lon = minLon + Math.random() * (maxLon - minLon);
+
+        const aircraftType = aircraftTypes[Math.floor(Math.random() * aircraftTypes.length)];
+        const callsign = aircraftType.callsigns[Math.floor(Math.random() * aircraftType.callsigns.length)] + 
+                        Math.floor(Math.random() * 999).toString().padStart(3, '0');
+
+        let altitude;
+        if (aircraftType.category === 2) {
+            altitude = Math.floor(Math.random() * 3000) + 500;
+        } else if (aircraftType.category === 3) {
+            altitude = Math.floor(Math.random() * 6000) + 1000;
+        } else {
+            altitude = Math.floor(Math.random() * 12000) + 8000;
+        }
+
+        let speed;
+        if (aircraftType.category === 2) {
+            speed = Math.floor(Math.random() * 80) + 40;
+        } else if (aircraftType.category === 3) {
+            speed = Math.floor(Math.random() * 120) + 80;
+        } else {
+            speed = Math.floor(Math.random() * 200) + 150;
+        }
+
+        const heading = Math.floor(Math.random() * 360);
+        const verticalRate = Math.floor(Math.random() * 15) - 7;
+
+        sampleFlights.push([
+            `SAMPLE${i.toString().padStart(3, '0')}`,
+            callsign,
+            countries[Math.floor(Math.random() * countries.length)],
+            Math.floor(Date.now() / 1000),
+            Math.floor(Date.now() / 1000),
+            lon,
+            lat,
+            altitude,
+            false, // on_ground = false (airborne only)
+            speed,
+            heading,
+            verticalRate,
+            [],
+            altitude + Math.floor(Math.random() * 100) - 50,
+            Math.floor(Math.random() * 9999).toString().padStart(4, '0'),
+            false,
+            0,
+            aircraftType.category
+        ]);
+    }
+
+    const rawStates = sampleFlights;
+    const rawStateCount = rawStates.length;
+    const flights = rawStates.map(transformState);
+
+    return res.json({
+        flights,
+        _fallback: true,
+        _source: 'enhanced_sample',
+        _message: `OpenSky API unavailable. Showing enhanced sample data for demonstration.`,
+        _meta: {
+            rawStateCount,
+            validCoordinateCount: rawStateCount,
+            filteredCount: flights.length,
+            rejections: {
+                invalidCoord: 0,
+                onGround: 0,
+                altitudeTooLow: 0,
+                stalePosition: 0,
+                speedTooLow: 0,
+            },
+            bbox: { minLat, minLon, maxLat, maxLon },
+            authUsed: false,
+            sourceTimestamp: Math.floor(Date.now() / 1000),
+            serverTimestamp: Date.now(),
+        },
+    });
+};
 
 // ---------------------------------------------------------------------------
 // Health check — GET /
@@ -168,30 +292,16 @@ app.get('/api/flights', async (req, res) => {
     let rawData;
     try {
         const url = `${OPENSKY_BASE}/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}&extended=1`;
-        const response = await openSkyRequest(url);
+        const response = await openSkyRequest(url, 4000); // 4-second timeout
         rawData = response.data;
     } catch (error) {
-        if (error.response) {
-            const { status } = error.response;
-            if (status === 401) {
-                accessToken = null; tokenExpiry = 0;
-                return res.status(502).json({ message: 'OpenSky authentication failed. Check your credentials.' });
-            }
-            if (status === 429) {
-                return res.status(429).json({
-                    message: 'OpenSky rate limit exceeded. Please wait before retrying.',
-                    retryAfter: error.response.headers['retry-after'] || 60,
-                });
-            }
-            if (status >= 500) {
-                return res.status(502).json({ message: `OpenSky upstream error (${status}). Try again shortly.` });
-            }
+        console.warn('[/api/flights] OpenSky API failed, falling back to simulated data. Error:', error.message);
+        if (error.response && error.response.status === 401) {
+            // Clear token cache if unauthorized
+            accessToken = null;
+            tokenExpiry = 0;
         }
-        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-            return res.status(504).json({ message: 'OpenSky API timed out. Please retry.' });
-        }
-        console.error('[/api/flights] OpenSky fetch error:', error.message);
-        return res.status(500).json({ message: 'Failed to fetch flight data.', detail: error.message });
+        return getFallbackFlightData(res, minLat, maxLat, minLon, maxLon, error.message);
     }
 
     const rawStates = rawData?.states ?? [];
@@ -263,7 +373,7 @@ app.get('/api/flight-track', async (req, res) => {
     try {
         // time=0 asks for the live/current track per the OpenSky REST API docs
         const url = `${OPENSKY_BASE}/tracks/all?icao24=${icao}&time=0`;
-        const response = await openSkyRequest(url, 12_000);
+        const response = await openSkyRequest(url, 5000);
         const data = response.data;
 
         // Normalise: only forward what the frontend needs
@@ -321,7 +431,7 @@ app.get('/api/flight-info', async (req, res) => {
 
     try {
         const url = `${OPENSKY_BASE}/flights/aircraft?icao24=${icao}&begin=${begin}&end=${now}`;
-        const response = await openSkyRequest(url, 12_000);
+        const response = await openSkyRequest(url, 5000);
         const flights = response.data;
 
         if (!Array.isArray(flights) || flights.length === 0) {
